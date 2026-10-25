@@ -27,7 +27,7 @@
 
 (declare-function treesit-node-child-by-field-name "treesit.c")
 
-(defconst json-schema-edit-model-keyword-types
+(defconst json-schema-edit-model--keyword-types
   '((minLength . string)
     (maxLength . string)
     (pattern . string)
@@ -62,11 +62,11 @@
     (unevaluatedProperties . object))
   "Keywords that apply only to one type.")
 
-;;;; Tree helpers
-
-(defconst json-schema-edit-model-combinators
+(defconst json-schema-edit-model--combinators
   '(oneOf anyOf allOf)
   "Keywords whose array elements are alternative subschemas.")
+
+;;;; Tree helpers
 
 (defun json-schema-edit-model--parser ()
   "Return the json parser of the current buffer, creating one if needed."
@@ -587,7 +587,7 @@ Keywords not tied to a type always apply."
   (let ((applies
          (alist-get
           (intern-soft keyword)
-          json-schema-edit-model-keyword-types)))
+          json-schema-edit-model--keyword-types)))
     (or
      (null applies)
      (member

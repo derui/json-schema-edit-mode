@@ -31,7 +31,7 @@
   '("title" "description" "$comment" "deprecated" "readOnly" "writeOnly")
   "Keywords kept on the outer schema when a schema is wrapped.")
 
-(defconst json-schema-edit-transform--combinators json-schema-edit-model-combinators
+(defconst json-schema-edit-transform--combinators json-schema-edit-model--combinators
   "Keywords combining subschemas.")
 
 (defun json-schema-edit-transform--node (pointer)

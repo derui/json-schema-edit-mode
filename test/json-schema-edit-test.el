@@ -45,15 +45,15 @@
 ;;;; Keyword types
 
 (ert-deftest json-schema-edit-test-keyword-types ()
-  (should (eq (caar json-schema-edit-model-keyword-types) 'minLength))
-  (should (eq (cdar json-schema-edit-model-keyword-types) 'string))
+  (should (eq (caar json-schema-edit-model--keyword-types) 'minLength))
+  (should (eq (cdar json-schema-edit-model--keyword-types) 'string))
   (should (json-schema-edit-model-keyword-applies-p "minLength" '("string")))
   (should-not (json-schema-edit-model-keyword-applies-p "minLength" '("number")))
   (should (json-schema-edit-model-keyword-applies-p "minimum" '("integer")))
   (should (json-schema-edit-model-keyword-applies-p "title" '("string"))))
 
 (ert-deftest json-schema-edit-test-combinators ()
-  (should (equal json-schema-edit-model-combinators '(oneOf anyOf allOf))))
+  (should (equal json-schema-edit-model--combinators '(oneOf anyOf allOf))))
 
 ;;;; Pointer
 
