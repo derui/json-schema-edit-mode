@@ -69,12 +69,12 @@ schema; nil disables the header line."
         (car (last (split-string ref "/"))))
       (format "#%d" (1+ index))))
 
-(defun json-schema-edit-instance-path (segments)
-  "Convert schema pointer SEGMENTS to a list of instance path labels.
+(defun json-schema-edit-instance-path (model segments)
+  "Convert schema pointer SEGMENTS of MODEL to a list of instance path labels.
 The first label names the root schema, or the definition when SEGMENTS
 point into `$defs' / `definitions'."
-  (let ((labels (list (json-schema-edit-model-root-name)))
-        (node (json-schema-edit-model-root)))
+  (let ((labels (list (json-schema-edit-model-root-name model)))
+        (node (json-schema-edit-model-root model)))
     (while segments
       (let ((seg (pop segments)))
         (pcase (json-schema-edit-model-keyword seg)
@@ -82,15 +82,14 @@ point into `$defs' / `definitions'."
            (when segments
              (let ((name (pop segments)))
                (setq labels (list name)
-                     node (json-schema-edit-model-node-at-pointer
-                           (list seg name) node)))
+                     node (json-schema-edit-model-lookup node (list seg name))))
              (setq seg nil)))
           ((and (or 'properties 'patternProperties 'dependentSchemas) keyword)
            (when segments
              (let ((name (pop segments)))
                (push (if (eq keyword 'patternProperties) (format "/%s/" name) name)
                      labels)
-               (setq node (json-schema-edit-model-node-at-pointer (list seg name) node)))
+               (setq node (json-schema-edit-model-lookup node (list seg name))))
              (setq seg nil)))
           ((or 'items 'additionalItems 'contains)
            (push "[]" labels))
@@ -98,46 +97,45 @@ point into `$defs' / `definitions'."
            (when segments
              (let ((idx (pop segments)))
                (push (format "[%s]" idx) labels)
-               (setq node (json-schema-edit-model-node-at-pointer (list seg idx) node)))
+               (setq node (json-schema-edit-model-lookup node (list seg idx))))
              (setq seg nil)))
           ('additionalProperties (push "{*}" labels))
           ((pred (lambda (k) (memq k json-schema-edit-model--combinators)))
            (when segments
              (let* ((idx (pop segments))
-                    (branch (json-schema-edit-model-node-at-pointer (list seg idx) node))
+                    (branch (json-schema-edit-model-lookup node (list seg idx)))
                     (i (if (integerp idx) idx (string-to-number idx))))
                (push (format "‹%s: %s›" seg (json-schema-edit--branch-name branch i))
                      labels)
                (setq node branch))
              (setq seg nil))))
         (when seg
-          (setq node (json-schema-edit-model-node-at-pointer (list seg) node)))))
+          (setq node (json-schema-edit-model-lookup node (list seg))))))
     (nreverse labels)))
 
-(defun json-schema-edit--required-p (segments)
-  "Return non-nil if the property at SEGMENTS is listed in `required'."
+(defun json-schema-edit--required-p (model segments)
+  "Return non-nil if the property of MODEL at SEGMENTS is listed in `required'."
   (let ((n (length segments)))
     (when (and (>= n 2)
                (eq (json-schema-edit-model-keyword (nth (- n 2) segments)) 'properties))
-      (let* ((owner (json-schema-edit-model-node-at-pointer (butlast segments 2)))
+      (let* ((owner (json-schema-edit-model-node-at-pointer model (butlast segments 2)))
              (required (json-schema-edit-model-get owner 'required))
              (name (car (last segments))))
-        (and required
-             (equal (treesit-node-type required) "array")
-             (seq-some (lambda (n) (equal (json-schema-edit-model-string-value n) name))
-                       (treesit-node-children required t)))))))
+        (seq-some (lambda (n) (equal (json-schema-edit-model-string-value n) name))
+                  (json-schema-edit-model-elements required))))))
 
 (defun json-schema-edit-breadcrumb ()
   "Return the breadcrumb string for point."
-  (let* ((segments (json-schema-edit-model-schema-pointer-at))
-         (node (json-schema-edit-model-node-at-pointer segments)))
+  (let* ((model (json-schema-edit-model-current))
+         (segments (json-schema-edit-model-schema-pointer-at model (point)))
+         (node (json-schema-edit-model-node-at-pointer model segments)))
     (pcase json-schema-edit-breadcrumb-style
       ('schema (json-schema-edit-model-pointer-fragment segments))
       (_
-       (let ((path (string-join (json-schema-edit-instance-path segments)
+       (let ((path (string-join (json-schema-edit-instance-path model segments)
                                 json-schema-edit-breadcrumb-separator))
              (type (and node (json-schema-edit-model-type-string node)))
-             (required (json-schema-edit--required-p segments)))
+             (required (json-schema-edit--required-p model segments)))
          (concat path
                  (when type (concat " : " type))
                  (when required " *")))))))
@@ -173,7 +171,7 @@ point into `$defs' / `definitions'."
   "Copy the JSON Pointer (URI fragment) of the schema at point."
   (interactive)
   (let ((ptr (json-schema-edit-model-pointer-fragment
-              (json-schema-edit-model-schema-pointer-at))))
+              (json-schema-edit-edit-schema-pointer))))
     (kill-new ptr)
     (message "Copied %s" ptr)))
 
@@ -225,7 +223,7 @@ See `context-menu-functions'."
         (unless (treesit-ready-p 'json)
           (setq json-schema-edit-mode nil)
           (user-error "The json tree-sitter grammar is not available"))
-        (json-schema-edit-model--parser)
+        (json-schema-edit-model-parser)
         (add-hook 'xref-backend-functions #'json-schema-edit-xref-backend nil t)
         (add-hook 'eldoc-documentation-functions
                   #'json-schema-edit-xref-eldoc-function nil t)
@@ -254,7 +252,7 @@ See `context-menu-functions'."
 (defun json-schema-edit-mode-maybe ()
   "Enable `json-schema-edit-mode' when the buffer looks like a JSON Schema."
   (when (and (treesit-ready-p 'json t)
-             (json-schema-edit-model-schema-p))
+             (json-schema-edit-model-schema-p (json-schema-edit-model-current)))
     (json-schema-edit-mode 1)))
 
 (defconst json-schema-edit--new-schema-versions

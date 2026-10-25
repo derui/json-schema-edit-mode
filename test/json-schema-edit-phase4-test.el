@@ -41,7 +41,7 @@
 
 (defun json-schema-edit-phase4-test--messages ()
   "Return the lint messages of the current buffer."
-  (mapcar (lambda (d) (nth 3 d)) (json-schema-edit-lint)))
+  (mapcar (lambda (d) (nth 3 d)) (json-schema-edit-lint (json-schema-edit-model-current))))
 
 ;;;; Nullable
 
@@ -195,7 +195,7 @@
       (should (equal .$defs.Dog '((type . "object") (properties (pet (const . "dog")))
                                   (required "pet")))))
     (should (equal (json-schema-edit-outline-discriminator
-                    (json-schema-edit-model-root) nil "oneOf")
+                    (json-schema-edit-model-current) nil 'oneOf)
                    "pet"))
     (json-schema-edit-phase4-test--answers '("x" "x")
       (should-error (json-schema-edit-set-discriminator nil 'oneOf "pet")
@@ -434,7 +434,7 @@
                 (insert-file-contents f)
                 (treesit-parser-create 'json)
                 (let ((errors (seq-filter (lambda (d) (eq (nth 2 d) :error))
-                                          (json-schema-edit-lint))))
+                                          (json-schema-edit-lint (json-schema-edit-model-current)))))
                   (should (equal (cons (file-name-nondirectory f) (mapcar #'cadddr errors))
                                  (list (file-name-nondirectory f)))))))))
       (delete-directory out t))))

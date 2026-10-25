@@ -55,7 +55,7 @@ KEYWORD is a symbol.")
 
 (defun json-schema-edit-constraint--node ()
   "Return the schema node being edited; call it in the schema buffer."
-  (json-schema-edit-model-node-at-pointer json-schema-edit-constraint--pointer))
+  (json-schema-edit-edit--node json-schema-edit-constraint--pointer))
 
 (defun json-schema-edit-constraint--types ()
   "Return the declared types of the schema being edited, null excluded."
@@ -83,7 +83,7 @@ KEYWORD is a symbol.")
       (cdr pending)
     (json-schema-edit-constraint--in-buffer
       (when-let* ((v (json-schema-edit-model-get (json-schema-edit-constraint--node) keyword)))
-        (treesit-node-text v t)))))
+        (json-schema-edit-model-node-text v)))))
 
 (defun json-schema-edit-constraint--string (keyword)
   "Return the decoded string value of KEYWORD, or nil."
@@ -172,7 +172,7 @@ all nil."
 (defun json-schema-edit-constraint--draft-04-p ()
   "Return non-nil if the schema being edited is draft-04."
   (json-schema-edit-constraint--in-buffer
-    (eq (json-schema-edit-model-schema-version) 'draft-04)))
+    (eq (json-schema-edit-model-schema-version (json-schema-edit-model-current)) 'draft-04)))
 
 (defun json-schema-edit-constraint--range-text ()
   "Return the current range in the range notation, or nil."
@@ -246,14 +246,16 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
   (let ((types (json-schema-edit-constraint--types)))
     (and (= (length types) 1) (car types))))
 
+(defun json-schema-edit-constraint--elements (text)
+  "Return the elements of the JSON array TEXT as nodes."
+  (json-schema-edit-model-elements
+   (json-schema-edit-model-root (json-schema-edit-model-from-string text))))
+
 (defun json-schema-edit-constraint--enum-elements ()
   "Return the texts of the current enum values."
   (when-let* ((text (json-schema-edit-constraint--current 'enum)))
-    (with-temp-buffer
-      (insert text)
-      (treesit-parser-create 'json)
-      (mapcar (lambda (n) (treesit-node-text n t))
-              (json-schema-edit-model--value-children (json-schema-edit-model-root))))))
+    (mapcar #'json-schema-edit-model-node-text
+            (json-schema-edit-constraint--elements text))))
 
 ;;;; Applying
 
@@ -265,7 +267,7 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
     (json-schema-edit-constraint--in-buffer
       (json-schema-edit-edit--with-undo
         (pcase-dolist (`(,kw . ,text) pending)
-          (let ((node (json-schema-edit-model-node-at-pointer pointer)))
+          (let ((node (json-schema-edit-edit--node pointer)))
             (if text
                 (json-schema-edit-edit-set-member node kw text)
               (json-schema-edit-edit-remove-member node kw))))))
@@ -435,11 +437,8 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
   "Set `examples' as a JSON array."
   :transient t
   :description (lambda ()
-                 (let ((n (with-temp-buffer
-                            (insert (or (json-schema-edit-constraint--current 'examples) ""))
-                            (treesit-parser-create 'json)
-                            (length (json-schema-edit-model--value-children
-                                     (json-schema-edit-model-root))))))
+                 (let ((n (length (json-schema-edit-constraint--elements
+                                   (or (json-schema-edit-constraint--current 'examples) "")))))
                    (json-schema-edit-constraint--desc
                     "examples" 'examples
                     (and (json-schema-edit-constraint--current 'examples)
@@ -535,8 +534,8 @@ They are symbols."
                       (and (not (json-schema-edit-model-keyword-applies-p k types))
                            (not (and (assq k json-schema-edit-constraint--pending)
                                      (null (cdr (assq k json-schema-edit-constraint--pending)))))))
-                    (mapcar (lambda (p) (intern (json-schema-edit-model-pair-key p)))
-                            (json-schema-edit-model-object-pairs
+                    (mapcar (lambda (m) (intern (json-schema-edit-model-node-key m)))
+                            (json-schema-edit-model-members
                              (json-schema-edit-constraint--node))))))))
 
 (transient-define-suffix json-schema-edit-constraint-remove-inapplicable ()
@@ -556,7 +555,8 @@ They are symbols."
   "Return the header of the constraint menu."
   (let ((name (format "%s" (or (car (last json-schema-edit-constraint--pointer))
                                (json-schema-edit-constraint--in-buffer
-                                 (json-schema-edit-model-root-name))))))
+                                 (json-schema-edit-model-root-name
+                                  (json-schema-edit-model-current)))))))
     (format "%s  %s    %s%s"
             (propertize name 'face 'bold)
             (propertize (string-join (or (json-schema-edit-constraint--types) '("any")) " | ")
@@ -619,7 +619,7 @@ at a time; opening it for another schema discards pending changes,
 after saying so."
   (interactive)
   (let ((buffer (or buffer (current-buffer)))
-        (pointer (or pointer (json-schema-edit-model-schema-pointer-at))))
+        (pointer (or pointer (json-schema-edit-edit-schema-pointer))))
     (when (and json-schema-edit-constraint--pending
                (not resume)
                (or (not (eq json-schema-edit-constraint--buffer buffer))
@@ -634,7 +634,7 @@ after saying so."
       (setq json-schema-edit-constraint--pending nil
             json-schema-edit-constraint--show-all nil))
     (with-current-buffer buffer
-      (unless (equal (treesit-node-type (json-schema-edit-constraint--node)) "object")
+      (unless (json-schema-edit-model-object-p (json-schema-edit-constraint--node))
         (user-error "No schema object at point")))
     (transient-setup 'json-schema-edit-constraints-menu)))
 

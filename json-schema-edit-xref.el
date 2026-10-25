@@ -34,39 +34,38 @@ of absolute file names.  The current file is always searched as well."
 
 ;;;; Targets
 
-(defun json-schema-edit-xref--target (ref)
-  "Resolve REF and return a plist describing its target, or nil.
-The plist has :file (absolute, or nil for a buffer without a file),
-:buffer (when the target is in the current buffer), :pos, :line, :column,
-:pointer and :summary."
-  (when-let* ((res (json-schema-edit-model-resolve ref)))
-    (let ((file (map-elt res :file))
-          (pos (map-elt res :pos)))
-      (if file
-          (json-schema-edit-model-with-file file
-            (json-schema-edit-xref--describe pos file nil))
-        (json-schema-edit-xref--describe pos buffer-file-name (current-buffer))))))
+(defun json-schema-edit-xref--summary (model pointer)
+  "Return the summary of the innermost schema object of MODEL holding POINTER."
+  (let ((node (json-schema-edit-model-node-at-pointer model pointer)))
+    (while (and pointer (not (json-schema-edit-model-object-p node)))
+      (setq pointer (butlast pointer)
+            node (json-schema-edit-model-node-at-pointer model pointer)))
+    (json-schema-edit-model-summary node)))
 
-(defun json-schema-edit-xref--describe (pos file buffer)
-  "Return a target plist for POS in the current buffer.
-FILE and BUFFER are recorded as they are."
-  (save-excursion
-    (goto-char pos)
-    (list :file file
-          :buffer buffer
+(defun json-schema-edit-xref--describe (model pos)
+  "Return a target plist for POS in MODEL.
+The plist has :file, :buffer, :pos, :line, :column, :pointer and
+:summary."
+  (let ((line (json-schema-edit-model-line-column model pos))
+        (pointer (json-schema-edit-model-pointer-at model pos)))
+    (list :file (json-schema-edit-model-file model)
+          :buffer (json-schema-edit-model-buffer model)
           :pos pos
-          :line (line-number-at-pos)
-          :column (current-column)
-          :pointer (json-schema-edit-model-pointer-at pos)
-          :summary (when-let* ((node (treesit-node-at pos 'json))
-                               (obj (treesit-parent-until
-                                     node (lambda (n) (equal (treesit-node-type n) "object"))
-                                     t)))
-                     (json-schema-edit-model-summary obj)))))
+          :line (car line)
+          :column (cdr line)
+          :pointer pointer
+          :summary (json-schema-edit-xref--summary model pointer))))
+
+(defun json-schema-edit-xref--target (model ref)
+  "Resolve REF from MODEL and return a plist describing its target, or nil.
+See `json-schema-edit-xref--describe' for the plist."
+  (when-let* ((res (json-schema-edit-model-resolve model ref)))
+    (json-schema-edit-xref--describe (map-elt res :model) (map-elt res :pos))))
 
 (defun json-schema-edit-xref--location (target)
   "Return an xref location for the TARGET plist.
-A file location is preferred, since the buffer may be a temporary one."
+A file location is preferred, since the model may come from a file
+that is not visited."
   (if-let* ((file (map-elt target :file)))
       (xref-make-file-location file
                                (map-elt target :line)
@@ -74,32 +73,28 @@ A file location is preferred, since the buffer may be a temporary one."
     (xref-make-buffer-location (map-elt target :buffer)
                                (map-elt target :pos))))
 
-(defun json-schema-edit-xref--line-summary (pos)
-  "Return the trimmed text of the line at POS."
-  (save-excursion
-    (goto-char pos)
-    (string-trim (buffer-substring (line-beginning-position) (line-end-position)))))
-
 ;;;; Identifiers
 
 (defun json-schema-edit-xref--identifier-at-point ()
   "Return the identifier at point.
 On a `$ref' it is the reference as written; elsewhere it is the URI
 fragment of the schema at point."
-  (if-let* ((ref (json-schema-edit-model-ref-at)))
-      (propertize (json-schema-edit-model-ref-value ref) 'json-schema-edit-ref t)
-    (json-schema-edit-model-pointer-fragment (json-schema-edit-model-pointer-at))))
+  (let ((model (json-schema-edit-model-current)))
+    (if-let* ((ref (json-schema-edit-model-ref-at model (point))))
+        (propertize (json-schema-edit-model-ref-value ref) 'json-schema-edit-ref t)
+      (json-schema-edit-model-pointer-fragment
+       (json-schema-edit-model-pointer-at model (point))))))
 
-(defun json-schema-edit-xref--definition-names ()
-  "Return fragments of the definitions and anchors in the current buffer."
-  (let ((root (json-schema-edit-model-root)) names)
+(defun json-schema-edit-xref--definition-names (model)
+  "Return fragments of the definitions and anchors in MODEL."
+  (let ((root (json-schema-edit-model-root model)) names)
     (dolist (key '($defs definitions))
-      (dolist (pair (json-schema-edit-model-object-pairs
-                     (json-schema-edit-model-get root key)))
+      (dolist (def (json-schema-edit-model-members
+                    (json-schema-edit-model-get root key)))
         (push (json-schema-edit-model-pointer-fragment
-               (list key (json-schema-edit-model-pair-key pair)))
+               (list key (json-schema-edit-model-node-key def)))
               names)))
-    (dolist (a (map-elt (json-schema-edit-model-index) :anchors))
+    (dolist (a (json-schema-edit-model-anchors model))
       (push (concat "#" (car a)) names))
     (nreverse names)))
 
@@ -110,37 +105,33 @@ fragment of the schema at point."
   (cons (or (map-elt target :file) (map-elt target :buffer))
         (json-schema-edit-model-normalize-segments (map-elt target :pointer))))
 
-(defun json-schema-edit-xref--references-in-buffer (key)
-  "Return xref items for the `$ref's of the current buffer that resolve to KEY."
+(defun json-schema-edit-xref--references-in (model key)
+  "Return xref items for the `$ref's of MODEL that resolve to KEY."
   (let (items)
-    (dolist (ref (json-schema-edit-model-refs))
+    (dolist (ref (json-schema-edit-model-refs model))
       (when-let* ((target (json-schema-edit-xref--target
-                           (json-schema-edit-model-ref-value ref))))
+                           model (json-schema-edit-model-ref-value ref))))
         (when (equal (json-schema-edit-xref--target-key target) key)
           (let ((pos (json-schema-edit-model-ref-beg ref)))
             (push (xref-make
-                   (json-schema-edit-xref--line-summary pos)
+                   (json-schema-edit-model-line-string model pos)
                    (json-schema-edit-xref--location
-                    (json-schema-edit-xref--describe
-                     pos buffer-file-name (current-buffer))))
+                    (json-schema-edit-xref--describe model pos)))
                   items)))))
     (nreverse items)))
 
-(defun json-schema-edit-xref--references (target)
-  "Return xref items for every `$ref' resolving to TARGET."
+(defun json-schema-edit-xref--references (model target)
+  "Return xref items for every `$ref' resolving to TARGET.
+MODEL is the model of the current buffer; the files of
+`json-schema-edit-reference-files-function' are searched as well."
   (let* ((key (json-schema-edit-xref--target-key target))
-         (self buffer-file-name)
-         (items (save-restriction
-                  (widen)
-                  (json-schema-edit-xref--references-in-buffer key))))
+         (self (json-schema-edit-model-file model))
+         (items (json-schema-edit-xref--references-in model key)))
     (dolist (file (funcall json-schema-edit-reference-files-function))
       (unless (and self (file-equal-p file self))
-        (when (file-readable-p file)
+        (when-let* ((other (json-schema-edit-model-of-file file)))
           (setq items
-                (append items
-                        (json-schema-edit-model-with-file file
-                          (let ((buffer-file-name (or buffer-file-name file)))
-                            (json-schema-edit-xref--references-in-buffer key))))))))
+                (append items (json-schema-edit-xref--references-in other key))))))
     items))
 
 ;;;; Backend
@@ -156,25 +147,28 @@ fragment of the schema at point."
 
 (cl-defmethod xref-backend-identifier-completion-table ((_backend (eql json-schema-edit)))
   "Return the definitions and anchors of the buffer."
-  (json-schema-edit-xref--definition-names))
+  (json-schema-edit-xref--definition-names (json-schema-edit-model-current)))
 
 (cl-defmethod xref-backend-definitions ((_backend (eql json-schema-edit)) identifier)
   "Return the target of the `$ref' IDENTIFIER."
-  (when-let* ((target (json-schema-edit-xref--target identifier)))
+  (when-let* ((target (json-schema-edit-xref--target
+                       (json-schema-edit-model-current) identifier)))
     (list (xref-make identifier (json-schema-edit-xref--location target)))))
 
 (cl-defmethod xref-backend-references ((_backend (eql json-schema-edit)) identifier)
   "Return every `$ref' that points to the target of IDENTIFIER."
-  (when-let* ((target (json-schema-edit-xref--target identifier)))
-    (json-schema-edit-xref--references target)))
+  (let ((model (json-schema-edit-model-current)))
+    (when-let* ((target (json-schema-edit-xref--target model identifier)))
+      (json-schema-edit-xref--references model target))))
 
 ;;;; Eldoc
 
 (defun json-schema-edit-xref-eldoc-function (callback &rest _)
   "Report a summary of the `$ref' target at point to CALLBACK."
-  (when-let* ((ref (json-schema-edit-model-ref-at))
+  (when-let* ((model (json-schema-edit-model-current))
+              (ref (json-schema-edit-model-ref-at model (point)))
               (value (json-schema-edit-model-ref-value ref)))
-    (let ((target (json-schema-edit-xref--target value)))
+    (let ((target (json-schema-edit-xref--target model value)))
       (funcall callback
                (if target
                    (or (map-elt target :summary) "")

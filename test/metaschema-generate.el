@@ -66,7 +66,7 @@ DEFS is the definitions keyword of the base schema."
       (dolist (tr (with-temp-buffer
                     (insert-file-contents base)
                     (treesit-parser-create 'json)
-                    (metaschema-generate--transformations (json-schema-edit-model-defs-keyword))))
+                    (metaschema-generate--transformations (json-schema-edit-model-defs-keyword (json-schema-edit-model-current)))))
         (pcase-let ((`(,name ,answers ,fn) tr))
           (with-temp-buffer
             (insert-file-contents base)

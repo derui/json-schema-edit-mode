@@ -62,7 +62,7 @@
 
 (defun json-schema-edit-phase2-test--messages ()
   "Return the lint messages of the current buffer."
-  (mapcar (lambda (d) (nth 3 d)) (json-schema-edit-lint)))
+  (mapcar (lambda (d) (nth 3 d)) (json-schema-edit-lint (json-schema-edit-model-current))))
 
 ;;;; Schema positions
 
@@ -142,7 +142,7 @@
                              (type . "object") (properties))))
             (json-schema-edit-add-property nil "name" "string" nil)
             (should (json-schema-edit-model-get
-                     (json-schema-edit-model-node-at-pointer '("properties")) "name")))
+                     (json-schema-edit-model-node-at-pointer (json-schema-edit-model-current) '("properties")) "name")))
         (kill-buffer (current-buffer)))))
   (should-error (json-schema-edit-new "2019-09" "X") :type 'user-error))
 

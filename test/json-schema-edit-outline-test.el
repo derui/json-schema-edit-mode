@@ -150,7 +150,7 @@ BODY runs in the outline buffer; `source' is bound to the schema buffer."
   (with-temp-buffer
     (insert "{\"$defs\": {\"A\": {\"allOf\": [{\"$ref\": \"#/$defs/A\"}]}}}")
     (treesit-parser-create 'json)
-    (should (json-schema-edit-outline-entries))))
+    (should (json-schema-edit-outline-entries (json-schema-edit-model-current)))))
 
 ;;;; Folding and refresh
 
@@ -340,7 +340,7 @@ BODY runs in the outline buffer; `source' is bound to the schema buffer."
              {\"title\": \"a\", \"properties\": {\"id\": {}}}]}")
     (treesit-parser-create 'json)
     (let* ((lines (json-schema-edit-outline--flatten
-                   (json-schema-edit-outline-entries)))
+                   (json-schema-edit-outline-entries (json-schema-edit-model-current))))
            (ids (mapcar (lambda (l) (nth 3 l)) lines)))
       ;; Same-named lines get distinct ids.
       (should (equal (length ids) (length (seq-uniq ids)))))))
