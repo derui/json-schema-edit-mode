@@ -3,7 +3,7 @@ version: '3'
 
 vars:
   EMACS: '{{.EMACS | default "emacs"}}'
-  SOURCES: json-schema-edit-model.el json-schema-edit-xref.el json-schema-edit-edit.el json-schema-edit-lint.el json-schema-edit-outline.el json-schema-edit-mode.el
+  SOURCES: json-schema-edit-model.el json-schema-edit-xref.el json-schema-edit-edit.el json-schema-edit-lint.el json-schema-edit-outline.el json-schema-edit-transform.el json-schema-edit-constraint.el json-schema-edit-menu.el json-schema-edit-mode.el
 
 env:
   # Directory containing libtree-sitter-json.so, if it is not on the
@@ -33,3 +33,14 @@ tasks:
     cmds:
       - '{{.EMACS}} -Q --batch -L . --eval "(setq byte-compile-error-on-warn t)" -f batch-byte-compile {{.SOURCES}}'
       - rm -f *.elc
+
+  metaschema:
+    desc: Check transformed schemas against their metaschemas (downloads ajv-cli via npx)
+    vars:
+      OUT: .metaschema-out
+      AJV: npx -y -p ajv-cli@5.0.0 ajv compile --strict=false --validate-formats=false
+    cmds:
+      - rm -rf {{.OUT}}
+      - '{{.EMACS}} -Q --batch -L . -l test/metaschema-generate.el {{.OUT}}'
+      - '{{.AJV}} --spec=draft7 -s "{{.OUT}}/draft-07--*.json"'
+      - '{{.AJV}} --spec=draft2020 -s "{{.OUT}}/2020-12--*.json"'

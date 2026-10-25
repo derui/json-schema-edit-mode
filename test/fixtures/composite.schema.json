@@ -29,7 +29,10 @@
       "discriminator": { "propertyName": "petType" }
     },
     "Cat": { "type": "object", "properties": { "petType": { "const": "cat" }, "lives": { "type": "integer" } } },
-    "Dog": { "type": "object", "properties": { "petType": { "const": "dog" } } },
+    "Dog": {
+      "type": "object",
+      "properties": { "petType": { "const": "dog" }, "friend": { "$ref": "#/$defs/Pet" } }
+    },
     "Timestamps": {
       "type": "object",
       "required": ["createdAt"],

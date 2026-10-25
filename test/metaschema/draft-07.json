@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Order",
+  "type": "object",
+  "required": ["id"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "note": { "type": "string", "description": "Free text" },
+    "count": { "type": "integer" },
+    "customer": { "$ref": "#/definitions/Customer" },
+    "payment": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["method", "amount"],
+          "properties": { "method": { "const": "card" }, "amount": { "type": "number" } }
+        },
+        {
+          "type": "object",
+          "required": ["method", "amount"],
+          "properties": { "method": { "const": "cash" }, "amount": { "type": "number" } }
+        }
+      ]
+    },
+    "shipping": {
+      "anyOf": [
+        { "type": "object", "title": "Home", "properties": { "zip": { "type": "string" } } },
+        { "type": "object", "title": "Store", "properties": { "store": { "type": "string" } } }
+      ]
+    }
+  },
+  "definitions": {
+    "Customer": { "type": "object", "properties": { "name": { "type": "string" } } }
+  }
+}

@@ -14,6 +14,11 @@
 ;; - definitions that no `$ref' uses
 ;; - `$ref's that cannot be resolved
 ;; - keywords that do not apply to the declared `type'
+;; - oneOf / anyOf: duplicated or missing discriminating values, a
+;;   mapping that disagrees with the branches, oneOf branches that
+;;   accept the same values
+;; - allOf: types no value can satisfy, and `additionalProperties: false'
+;;   rejecting properties added by the other branches
 
 ;;; Code:
 
@@ -21,6 +26,7 @@
 (require 'map)
 (require 'json-schema-edit-model)
 (require 'json-schema-edit-xref)
+(require 'json-schema-edit-outline)
 
 (defcustom json-schema-edit-lint-unused-definitions 'directory
   "Where `$ref's are looked for when checking for unused definitions.
@@ -90,6 +96,141 @@ current buffer; nil disables the check."
                             :error
                             (format-message "Cannot resolve `%s'" value)))))
                 (json-schema-edit-model-refs))))
+
+;;;; Combinators
+
+(defun json-schema-edit-lint--const-of (target prop)
+  "Return the `const' node of the property PROP in the schema TARGET."
+  (json-schema-edit-model-get
+   (json-schema-edit-model-get (json-schema-edit-model-get target "properties") prop)
+   "const"))
+
+(defun json-schema-edit-lint--discriminator-candidate (node branches)
+  "Return the property of NODE meant to discriminate BRANCHES, or nil.
+It is the OpenAPI `discriminator.propertyName', or a property fixed by
+`const' in at least two branches and half of them."
+  (or (json-schema-edit-model-get-string
+       (json-schema-edit-model-get node "discriminator") "propertyName")
+      (let ((counts nil))
+        (dolist (b branches)
+          (dolist (pair (json-schema-edit-model-object-pairs
+                         (json-schema-edit-model-get (nth 3 b) "properties")))
+            (when (json-schema-edit-model-get (json-schema-edit-model-pair-value pair) "const")
+              (cl-incf (alist-get (json-schema-edit-model-pair-key pair) counts 0 nil #'equal)))))
+        (car (seq-find (lambda (c) (and (>= (cdr c) 2) (>= (* 2 (cdr c)) (length branches))))
+                       (nreverse counts))))))
+
+(defun json-schema-edit-lint--check-discriminated (node pointer comb)
+  "Return diagnostics for the discriminating property of COMB in NODE at POINTER."
+  (let* ((branches (json-schema-edit-outline-branches node pointer comb))
+         (prop (json-schema-edit-lint--discriminator-candidate node branches))
+         seen result)
+    (when prop
+      (dolist (b branches)
+        (let ((c (json-schema-edit-lint--const-of (nth 3 b) prop)))
+          (cond
+           ((null c)
+            (push (json-schema-edit-lint--diag
+                   (cadr b) :warning "Branch does not fix the discriminating property `%s'" prop)
+                  result))
+           ((member (treesit-node-text c t) seen)
+            (push (json-schema-edit-lint--diag
+                   c :error "Duplicate discriminating value %s" (treesit-node-text c t))
+                  result))
+           (t (push (treesit-node-text c t) seen)))))
+      (dolist (pair (json-schema-edit-model-object-pairs
+                     (json-schema-edit-model-get
+                      (json-schema-edit-model-get node "discriminator") "mapping")))
+        (let* ((value (json-schema-edit-model-pair-key pair))
+               (ref (json-schema-edit-model-string-value (json-schema-edit-model-pair-value pair)))
+               (res (and ref (json-schema-edit-model-resolve ref)))
+               (c (and res (not (map-elt res :file))
+                       (json-schema-edit-lint--const-of
+                        (json-schema-edit-model-node-at-pointer (map-elt res :pointer)) prop))))
+          (when (and c (not (equal (json-schema-edit-model-string-value c) value)))
+            (push (json-schema-edit-lint--diag
+                   (json-schema-edit-model-pair-value pair) :warning
+                   "Mapping `%s' points to a branch whose %s is %s"
+                   value prop (treesit-node-text c t))
+                  result)))))
+    (nreverse result)))
+
+(defun json-schema-edit-lint--check-overlap (node pointer)
+  "Return diagnostics for oneOf branches of NODE at POINTER that overlap.
+This is a heuristic: identical branches, or branches naming only the
+same type."
+  (let ((seen nil) result)
+    (seq-do-indexed
+     (lambda (b i)
+       (let* ((branch (cadr b))
+              (key (if (seq-every-p (lambda (p) (member (json-schema-edit-model-pair-key p)
+                                                        '("type" "title" "description")))
+                                    (json-schema-edit-model-object-pairs branch))
+                       (format "type:%s" (json-schema-edit-model-declared-types branch))
+                     (replace-regexp-in-string "[ \t\n]+" "" (treesit-node-text branch t))))
+              (other (assoc key seen)))
+         (if other
+             (push (json-schema-edit-lint--diag
+                    branch :warning
+                    "Branches #%d and #%d accept the same values, which oneOf rejects"
+                    (1+ (cdr other)) (1+ i))
+                   result)
+           (push (cons key i) seen))))
+     (json-schema-edit-outline-branches node pointer "oneOf"))
+    (nreverse result)))
+
+(defun json-schema-edit-lint--check-all-of (node pointer)
+  "Return diagnostics for allOf of NODE at POINTER."
+  (let* ((branches (json-schema-edit-outline-branches node pointer "allOf"))
+         (all-of (json-schema-edit-model-get node "allOf"))
+         (widen (lambda (types) (if (member "number" types) (cons "integer" types) types)))
+         (possible :any)
+         result)
+    (dolist (types (delq nil (cons (json-schema-edit-model-declared-types node)
+                                   (mapcar (lambda (b) (json-schema-edit-model-declared-types
+                                                        (nth 3 b)))
+                                           branches))))
+      (setq possible (if (eq possible :any)
+                         (funcall widen types)
+                       (seq-intersection possible (funcall widen types)))))
+    (when (null possible)
+      (push (json-schema-edit-lint--diag
+             (treesit-node-child-by-field-name (treesit-node-parent all-of) "key")
+             :error "The types of the allOf branches leave no possible value")
+            result))
+    (let ((names-of (lambda (n) (mapcar #'json-schema-edit-model-pair-key
+                                        (json-schema-edit-model-object-pairs
+                                         (json-schema-edit-model-get n "properties"))))))
+      (dolist (b branches)
+        (let ((additional (json-schema-edit-model-get (nth 3 b) "additionalProperties")))
+          (when (equal (treesit-node-type additional) "false")
+            (let* ((own (funcall names-of (nth 3 b)))
+                   (others (seq-uniq
+                            (seq-difference
+                             (append (funcall names-of node)
+                                     (mapcan (lambda (o) (unless (eq o b)
+                                                           (funcall names-of (nth 3 o))))
+                                             branches))
+                             own))))
+              (when others
+                (push (json-schema-edit-lint--diag
+                       additional :warning
+                       "additionalProperties: false rejects %s, defined outside this branch"
+                       (string-join others ", "))
+                      result)))))))
+    (nreverse result)))
+
+(defun json-schema-edit-lint--check-combinators (pointer schema)
+  "Return diagnostics for the combinators of SCHEMA at POINTER."
+  (append
+   (mapcan (lambda (comb)
+             (when (equal (treesit-node-type (json-schema-edit-model-get schema comb)) "array")
+               (append (json-schema-edit-lint--check-discriminated schema pointer comb)
+                       (when (equal comb "oneOf")
+                         (json-schema-edit-lint--check-overlap schema pointer)))))
+           '("oneOf" "anyOf"))
+   (when (equal (treesit-node-type (json-schema-edit-model-get schema "allOf")) "array")
+     (json-schema-edit-lint--check-all-of schema pointer))))
 
 ;;;; Unused definitions
 
@@ -172,7 +313,8 @@ Each is a list (BEG END TYPE MESSAGE) where TYPE is a flymake type."
      (json-schema-edit-lint--check-unused)
      (mapcan (lambda (entry)
                (append (json-schema-edit-lint--check-required (cdr entry))
-                       (json-schema-edit-lint--check-type-keywords (cdr entry))))
+                       (json-schema-edit-lint--check-type-keywords (cdr entry))
+                       (json-schema-edit-lint--check-combinators (car entry) (cdr entry))))
              (json-schema-edit-lint--schemas))))))
 
 (defun json-schema-edit-lint-flymake (report-fn &rest _)

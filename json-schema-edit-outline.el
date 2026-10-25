@@ -29,6 +29,9 @@
 (require 'map)
 (require 'json-schema-edit-model)
 (require 'json-schema-edit-edit)
+(require 'json-schema-edit-constraint)
+
+(declare-function json-schema-edit-toggle-nullable "json-schema-edit-transform")
 
 (defcustom json-schema-edit-outline-max-label-width 40
   "Maximum width of the label column; the type column starts after it."
@@ -353,6 +356,17 @@ OpenAPI `discriminator.propertyName'."
            (mapcar #'json-schema-edit-model-pair-key
                    (json-schema-edit-model-object-pairs
                     (json-schema-edit-model-get first "properties"))))))))
+
+(defun json-schema-edit-outline-branches (node pointer comb)
+  "Return the branches of COMB in the schema NODE at POINTER.
+Each is (POINTER NODE TARGET-POINTER TARGET), where TARGET is the
+branch, or the local definition its `$ref' points to."
+  (json-schema-edit-outline--branches node comb pointer))
+
+(defun json-schema-edit-outline-discriminator (node pointer comb)
+  "Return the property discriminating the COMB branches of NODE at POINTER."
+  (json-schema-edit-outline--discriminator
+   node (json-schema-edit-outline--branches node comb pointer)))
 
 (defun json-schema-edit-outline--describe-combinator (node pointer comb)
   "Describe NODE at POINTER whose shape is given by the COMB keyword."
@@ -755,6 +769,24 @@ When FN returns a pointer, point moves to its line."
                                         (y-or-n-p "Required? "))
          (append owner (list "properties" name)))))))
 
+(defun json-schema-edit-outline-constraints ()
+  "Edit the constraints of the schema at point."
+  (interactive)
+  (let ((entry (json-schema-edit-outline--entry-at-point)))
+    (unless (memq (json-schema-edit-outline-entry-kind entry)
+                  '(root definition property pattern additional items branch))
+      (user-error "No schema on this line"))
+    (json-schema-edit-constraints json-schema-edit-outline--source
+                                  (json-schema-edit-outline-entry-pointer entry))))
+
+(defun json-schema-edit-outline-toggle-nullable ()
+  "Toggle whether the schema at point accepts null."
+  (interactive)
+  (json-schema-edit-outline--edit
+   (lambda (e)
+     (json-schema-edit-toggle-nullable (json-schema-edit-outline-entry-pointer e))
+     nil)))
+
 (defun json-schema-edit-outline-toggle-merge ()
   "Toggle between showing allOf bases as `extends' and merging them."
   (interactive)
@@ -775,6 +807,8 @@ When FN returns a pointer, point moves to its line."
     (define-key map (kbd "t") #'json-schema-edit-outline-change-type)
     (define-key map (kbd "R") #'json-schema-edit-outline-rename)
     (define-key map (kbd "a") #'json-schema-edit-outline-add-property)
+    (define-key map (kbd "c") #'json-schema-edit-outline-constraints)
+    (define-key map (kbd "?") #'json-schema-edit-outline-toggle-nullable)
     (define-key map (kbd "m") #'json-schema-edit-outline-toggle-merge)
     (define-key map (kbd "g") #'json-schema-edit-outline-refresh)
     (define-key map (kbd "n") #'next-line)

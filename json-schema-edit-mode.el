@@ -22,6 +22,10 @@
 ;; - adding and renaming properties with `required' kept in sync, and
 ;;   renaming definitions with every `$ref' rewritten
 ;; - an outline of the data shape (`C-c C-s l'), also used by imenu
+;; - constraints edited by type, and routine transformations such as
+;;   nullable, array, wrapping in oneOf and moving to `$defs'
+;;
+;; Every operation is in the transient menu on `C-c C-s'.
 ;;
 ;; Completion and metaschema validation are left to an LSP server such
 ;; as vscode-json-languageserver.
@@ -37,6 +41,9 @@
 (require 'json-schema-edit-edit)
 (require 'json-schema-edit-lint)
 (require 'json-schema-edit-outline)
+(require 'json-schema-edit-transform)
+(require 'json-schema-edit-constraint)
+(require 'json-schema-edit-menu)
 
 (defcustom json-schema-edit-breadcrumb-style 'instance
   "How the header line shows the location at point.
@@ -173,14 +180,7 @@ point into `$defs' / `definitions'."
 
 (defvar json-schema-edit-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c C-s l") #'json-schema-edit-outline)
-    (define-key map (kbd "C-c C-s a") #'json-schema-edit-add-property)
-    (define-key map (kbd "C-c C-s *") #'json-schema-edit-toggle-required)
-    (define-key map (kbd "C-c C-s t") #'json-schema-edit-change-type)
-    (define-key map (kbd "C-c C-s r") #'json-schema-edit-rename-property)
-    (define-key map (kbd "C-c C-s d") #'json-schema-edit-rename-definition)
-    (define-key map (kbd "C-c C-s b") #'json-schema-edit-toggle-breadcrumb-style)
-    (define-key map (kbd "C-c C-s w") #'json-schema-edit-copy-pointer)
+    (define-key map (kbd "C-c C-s") #'json-schema-edit-dispatch)
     map)
   "Keymap for `json-schema-edit-mode'.")
 

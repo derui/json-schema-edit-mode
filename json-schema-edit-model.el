@@ -322,6 +322,21 @@ nil when `$schema' is missing or unknown."
              (json-schema-edit-model-get root "$defs")
              (json-schema-edit-model-get root "definitions")))))
 
+(defun json-schema-edit-model-defs-keyword ()
+  "Return the keyword holding definitions in this schema.
+An existing `$defs' or `definitions' wins; otherwise it follows the
+draft: `definitions' up to draft-07, `$defs' after."
+  (let ((root (json-schema-edit-model-root)))
+    (cond
+     ((json-schema-edit-model-get root "$defs") "$defs")
+     ((json-schema-edit-model-get root "definitions") "definitions")
+     ((memq (json-schema-edit-model-draft) '(draft-04 draft-06 draft-07)) "definitions")
+     (t "$defs"))))
+
+(defun json-schema-edit-model-ref-siblings-ignored-p ()
+  "Return non-nil if keywords next to `$ref' are ignored by this draft."
+  (memq (json-schema-edit-model-draft) '(draft-04 draft-06 draft-07)))
+
 ;;;; Resolving $ref
 
 (defmacro json-schema-edit-model-with-file (file &rest body)

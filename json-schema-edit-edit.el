@@ -109,6 +109,71 @@ Return the position where TEXT was inserted."
           (insert (json-schema-edit-edit--indent-text text indent)
                   "\n" (make-string base ?\s))))))))
 
+(defun json-schema-edit-edit--compact-object-text (members)
+  "Return an object holding MEMBERS, a list of (KEY . VALUE-TEXT).
+It is written on one line when short and single-line, else like
+`json-schema-edit-edit--object-text'."
+  (let ((inline (concat "{ "
+                        (mapconcat (lambda (m)
+                                     (concat (json-schema-edit-edit--literal (car m))
+                                             ": " (cdr m)))
+                                   members ", ")
+                        " }")))
+    (if (and (<= (length inline) 60) (not (string-search "\n" inline)))
+        inline
+      (json-schema-edit-edit--object-text members))))
+
+(defun json-schema-edit-edit--array-text (elements)
+  "Return an array of ELEMENTS (texts), on one line when short."
+  (let ((inline (concat "[" (string-join elements ", ") "]"))
+        (pad (make-string (json-schema-edit-edit--offset) ?\s)))
+    (if (and (<= (length inline) 60) (not (string-search "\n" inline)))
+        inline
+      (concat "[\n"
+              (mapconcat (lambda (e)
+                           (concat pad (json-schema-edit-edit--indent-text
+                                        e (json-schema-edit-edit--offset))))
+                         elements ",\n")
+              "\n]"))))
+
+(defun json-schema-edit-edit-node-text (node)
+  "Return the text of NODE with its lines indented relative to its start."
+  (let ((base (save-excursion
+                (goto-char (treesit-node-start node))
+                (current-indentation))))
+    (replace-regexp-in-string
+     (concat "\n" (make-string base ?\s)) "\n"
+     (treesit-node-text node t))))
+
+(defun json-schema-edit-edit-replace-node (node text)
+  "Replace NODE by TEXT, indenting its later lines like NODE's line."
+  (let ((indent (save-excursion
+                  (goto-char (treesit-node-start node))
+                  (current-indentation))))
+    (save-excursion
+      (goto-char (treesit-node-start node))
+      (delete-region (treesit-node-start node) (treesit-node-end node))
+      (insert (json-schema-edit-edit--indent-text text indent)))))
+
+(defun json-schema-edit-edit-insert-after (node siblings text)
+  "Insert TEXT after NODE, one of SIBLINGS in its container."
+  (save-excursion
+    (if (json-schema-edit-edit--one-line-p (treesit-node-parent node))
+        (progn (goto-char (treesit-node-end node))
+               (insert ", " text))
+      (let ((indent (json-schema-edit-edit--column
+                     (treesit-node-start (car siblings)))))
+        (goto-char (treesit-node-end node))
+        (insert ",\n" (make-string indent ?\s)
+                (json-schema-edit-edit--indent-text text indent))))))
+
+(defun json-schema-edit-edit-members (node)
+  "Return the members of the object NODE as (KEY . RELATIVE-TEXT)."
+  (mapcar (lambda (p)
+            (cons (json-schema-edit-model-pair-key p)
+                  (json-schema-edit-edit-node-text (json-schema-edit-model-pair-value p))))
+          (json-schema-edit-model-object-pairs node)))
+
 (defun json-schema-edit-edit-add-member (object key value-text)
   "Add KEY with VALUE-TEXT at the end of the OBJECT node.
 Return the position of the new key."
