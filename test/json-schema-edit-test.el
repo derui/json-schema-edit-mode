@@ -199,5 +199,12 @@
     (json-schema-edit-mode -1)
     (should-not (memq #'json-schema-edit-xref-backend xref-backend-functions))))
 
+(ert-deftest json-schema-edit-test-mode-maybe-root-combinator ()
+  (with-temp-buffer
+    (insert "{\"oneOf\": [{\"type\": \"string\"}, {\"type\": \"number\"}]}")
+    (treesit-parser-create 'json)
+    (json-schema-edit-mode-maybe)
+    (should json-schema-edit-mode)))
+
 (provide 'json-schema-edit-test)
 ;;; json-schema-edit-test.el ends here

@@ -412,12 +412,14 @@ nil when `$schema' is missing or unknown."
 (defun json-schema-edit-model-schema-p ()
   "Return non-nil if the current buffer looks like a JSON Schema."
   (when-let* ((root (json-schema-edit-model-root)))
-    (and
-     (equal (treesit-node-type root) "object")
-     (or
-      (json-schema-edit-model-get root "$schema")
-      (json-schema-edit-model-get root "$defs")
-      (json-schema-edit-model-get root "definitions")))))
+    (or
+     (json-schema-edit-model-get root "$schema")
+     (json-schema-edit-model-get root "$defs")
+     (json-schema-edit-model-get root "definitions")
+     (seq-some
+      (lambda (keyword)
+        (json-schema-edit-model-get root (symbol-name keyword)))
+      json-schema-edit-model--combinators))))
 
 (defun json-schema-edit-model-defs-keyword ()
   "Return the keyword holding definitions in this schema.
