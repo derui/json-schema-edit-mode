@@ -20,7 +20,7 @@
 (require 'json-schema-edit-constraint)
 (require 'json-schema-edit-outline)
 
-(declare-function json-schema-edit-toggle-breadcrumb-style "json-schema-edit-mode") (declare-function json-schema-edit-copy-pointer "json-schema-edit-mode") (declare-function json-schema-edit-new "json-schema-edit-mode")
+(declare-function json-schema-edit-toggle-breadcrumb-style "json-schema-edit-header") (declare-function json-schema-edit-copy-pointer "json-schema-edit-mode") (declare-function json-schema-edit-new "json-schema-edit-mode")
 
 (defun json-schema-edit-menu--combinator-desc ()
   "Return the header of the combinator menu for point."

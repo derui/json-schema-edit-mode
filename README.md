@@ -287,6 +287,7 @@ task compile      # byte-compile with warnings as errors
 | File                             | Role                                                                                                                                          |
 |----------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
 | `json-schema-edit-model.el`      | Schema model built from the tree-sitter tree: JSON Pointer, `$ref` index and resolution, drafts. Every other part reads the schema through it |
+| `json-schema-edit-header.el`     | Breadcrumb in the header line                                                                                                                 |
 | `json-schema-edit-xref.el`       | xref backend and eldoc                                                                                                                        |
 | `json-schema-edit-lint.el`       | flymake backend                                                                                                                               |
 | `json-schema-edit-edit.el`       | Text primitives and synced property / definition edits                                                                                        |
@@ -294,7 +295,7 @@ task compile      # byte-compile with warnings as errors
 | `json-schema-edit-transform.el`  | Transformations and branch editing                                                                                                            |
 | `json-schema-edit-constraint.el` | Constraint menu and enum buffer                                                                                                               |
 | `json-schema-edit-menu.el`       | Transient menus                                                                                                                               |
-| `json-schema-edit-mode.el`       | Minor mode, breadcrumb, entry point                                                                                                           |
+| `json-schema-edit-mode.el`       | Minor mode, entry point                                                                                                                       |
 
 ## License
 

@@ -18,6 +18,7 @@
 (require 'eldoc)
 (require 'map)
 (require 'json-schema-edit-model)
+(require 'json-schema-edit-header)
 
 (defcustom json-schema-edit-reference-files-function
   #'json-schema-edit-xref-sibling-files
@@ -37,14 +38,21 @@ of absolute file names.  The current file is always searched as well."
 ;;;; Targets
 
 (defun json-schema-edit-xref--summary (model pointer)
-  "Return the summary of the innermost schema object of MODEL holding POINTER."
+  "Return the summary of the innermost schema object of MODEL holding POINTER.
+It is one line of the type and the title or description."
   (let ((node (json-schema-edit-model-node-at-pointer model pointer)))
     (while (and pointer (not (json-schema-edit-model-object-p node)))
       (setq pointer
             (butlast pointer)
             node
             (json-schema-edit-model-node-at-pointer model pointer)))
-    (json-schema-edit-model-summary node)))
+    (when (json-schema-edit-model-object-p node)
+      (let ((type (json-schema-edit-header-type-string node))
+            (desc
+             (or
+              (json-schema-edit-model-get-string node 'title)
+              (json-schema-edit-model-get-string node 'description))))
+        (string-join (delq nil (list type desc)) " — ")))))
 
 (defun json-schema-edit-xref--describe (model pos)
   "Return a target plist for POS in MODEL.

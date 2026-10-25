@@ -3,7 +3,7 @@ version: '3'
 
 vars:
   EMACS: '{{.EMACS | default "emacs"}}'
-  SOURCES: json-schema-edit-model.el json-schema-edit-xref.el json-schema-edit-edit.el json-schema-edit-lint.el json-schema-edit-outline.el json-schema-edit-transform.el json-schema-edit-constraint.el json-schema-edit-menu.el json-schema-edit-mode.el
+  SOURCES: json-schema-edit-model.el json-schema-edit-header.el json-schema-edit-xref.el json-schema-edit-edit.el json-schema-edit-lint.el json-schema-edit-outline.el json-schema-edit-transform.el json-schema-edit-constraint.el json-schema-edit-menu.el json-schema-edit-mode.el
 
 env:
   # Directory containing libtree-sitter-json.so, if it is not on the

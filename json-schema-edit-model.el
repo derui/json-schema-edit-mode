@@ -8,7 +8,7 @@
 ;;; Commentary:
 
 ;; The schema model is the single place that interprets a JSON Schema
-;; buffer.  Every UI feature (xref, eldoc, breadcrumb, ...) asks this
+;; buffer.  Every UI feature (xref, eldoc, header line, ...) asks this
 ;; module instead of walking the syntax tree by itself, so that all of
 ;; them share the same interpretation.
 ;;
@@ -701,31 +701,6 @@ apply."
      (member
       (symbol-name applies)
       (if (member "integer" types) (cons "number" types) types)))))
-
-(defun json-schema-edit-model-type-string (node)
-  "Return a short type description of the schema NODE, or nil."
-  (when (json-schema-edit-model-object-p node)
-    (let ((type (json-schema-edit-model-get node 'type)))
-      (pcase (json-schema-edit-model-json-type type)
-        ('nil
-         (when-let* ((ref (json-schema-edit-model-get-string node '$ref)))
-           (concat "→ " ref)))
-        ('string
-         (json-schema-edit-model-string-value type))
-        ('array
-         (mapconcat #'json-schema-edit-model-string-value
-                    (json-schema-edit-model-elements type)
-                    " | "))))))
-
-(defun json-schema-edit-model-summary (node)
-  "Return a one-line summary (type and description) of the schema NODE."
-  (when (json-schema-edit-model-object-p node)
-    (let ((type (json-schema-edit-model-type-string node))
-          (desc
-           (or
-            (json-schema-edit-model-get-string node 'title)
-            (json-schema-edit-model-get-string node 'description))))
-      (string-join (delq nil (list type desc)) " — "))))
 
 ;;;; Building models
 

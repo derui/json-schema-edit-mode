@@ -121,7 +121,7 @@
                    '(properties "x")))
     (should (equal (map-elt (json-schema-edit-model-resolve model "#a") :pointer)
                    '($defs "A")))
-    (should (equal (json-schema-edit-model-type-string
+    (should (equal (json-schema-edit-header-type-string
                     (map-elt (json-schema-edit-model-resolve model "#/$defs/A") :node))
                    "string"))))
 
@@ -264,16 +264,16 @@
 (ert-deftest json-schema-edit-test-breadcrumb ()
   (json-schema-edit-test--with-fixture "user.schema.json"
     (json-schema-edit-test--goto "\"zip\": {")
-    (should (equal (json-schema-edit-breadcrumb) "Address › zip : string *"))
+    (should (equal (json-schema-edit-header-breadcrumb) "Address › zip : string *"))
     (json-schema-edit-test--goto "\"minLength\"")
-    (should (equal (json-schema-edit-breadcrumb) "User › name : string *"))
+    (should (equal (json-schema-edit-header-breadcrumb) "User › name : string *"))
     (json-schema-edit-test--goto "\"address\": { \"type\"")
-    (should (equal (json-schema-edit-breadcrumb)
+    (should (equal (json-schema-edit-header-breadcrumb)
                    "User › contact › ‹oneOf: email› › address : string"))
     (json-schema-edit-test--goto "#tag")
-    (should (equal (json-schema-edit-breadcrumb) "User › tags › [] : → #tag"))
+    (should (equal (json-schema-edit-header-breadcrumb) "User › tags › [] : → #tag"))
     (let ((json-schema-edit-breadcrumb-style 'schema))
-      (should (equal (json-schema-edit-breadcrumb) "#/properties/tags/items")))))
+      (should (equal (json-schema-edit-header-breadcrumb) "#/properties/tags/items")))))
 
 (ert-deftest json-schema-edit-test-mode-maybe ()
   (json-schema-edit-test--with-fixture "common.json"
