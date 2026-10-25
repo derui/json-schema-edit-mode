@@ -18,6 +18,9 @@
 ;; - eldoc summary of the `$ref' target
 ;; - a breadcrumb in the header line showing where in the data the
 ;;   schema at point applies
+;; - schema-specific lint as a flymake backend
+;; - adding and renaming properties with `required' kept in sync, and
+;;   renaming definitions with every `$ref' rewritten
 ;;
 ;; Completion and metaschema validation are left to an LSP server such
 ;; as vscode-json-languageserver.
@@ -30,6 +33,8 @@
 
 (require 'json-schema-edit-model)
 (require 'json-schema-edit-xref)
+(require 'json-schema-edit-edit)
+(require 'json-schema-edit-lint)
 
 (defcustom json-schema-edit-breadcrumb-style 'instance
   "How the header line shows the location at point.
@@ -122,39 +127,9 @@ point into `$defs' / `definitions'."
              (seq-some (lambda (n) (equal (json-schema-edit-model-string-value n) name))
                        (treesit-node-children required t)))))))
 
-(defun json-schema-edit--schema-segments-at-point ()
-  "Return the pointer of the innermost schema object at point.
-Positions inside keyword values that are not schemas (such as the
-string of `type') are mapped to the object that holds them."
-  (let ((segments (json-schema-edit-model-pointer-at)))
-    (while (and segments
-                (not (equal (treesit-node-type
-                             (json-schema-edit-model-node-at-pointer segments))
-                            "object")))
-      (setq segments (butlast segments)))
-    ;; A keyword of the schema itself, e.g. #/properties/a/type.
-    (while (and segments
-                (stringp (car (last segments)))
-                (not (json-schema-edit--schema-position-p segments)))
-      (setq segments (butlast segments)))
-    segments))
-
-(defun json-schema-edit--schema-position-p (segments)
-  "Return non-nil if SEGMENTS address a subschema rather than a keyword value."
-  (let ((n (length segments)))
-    (or (zerop n)
-        (let ((last (nth (1- n) segments))
-              (prev (and (>= n 2) (nth (- n 2) segments))))
-          (or (integerp last)
-              (member prev '("properties" "patternProperties" "$defs" "definitions"
-                             "dependentSchemas"))
-              (member last '("items" "additionalItems" "additionalProperties"
-                             "contains" "not" "if" "then" "else" "propertyNames"
-                             "unevaluatedItems" "unevaluatedProperties")))))))
-
 (defun json-schema-edit-breadcrumb ()
   "Return the breadcrumb string for point."
-  (let* ((segments (json-schema-edit--schema-segments-at-point))
+  (let* ((segments (json-schema-edit-model-schema-pointer-at))
          (node (json-schema-edit-model-node-at-pointer segments)))
     (pcase json-schema-edit-breadcrumb-style
       ('schema (json-schema-edit-model-pointer-fragment segments))
@@ -195,7 +170,7 @@ string of `type') are mapped to the object that holds them."
   "Copy the JSON Pointer (URI fragment) of the schema at point."
   (interactive)
   (let ((ptr (json-schema-edit-model-pointer-fragment
-              (json-schema-edit--schema-segments-at-point))))
+              (json-schema-edit-model-schema-pointer-at))))
     (kill-new ptr)
     (message "Copied %s" ptr)))
 
@@ -203,6 +178,9 @@ string of `type') are mapped to the object that holds them."
 
 (defvar json-schema-edit-mode-map
   (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-s a") #'json-schema-edit-add-property)
+    (define-key map (kbd "C-c C-s r") #'json-schema-edit-rename-property)
+    (define-key map (kbd "C-c C-s d") #'json-schema-edit-rename-definition)
     (define-key map (kbd "C-c C-s b") #'json-schema-edit-toggle-breadcrumb-style)
     (define-key map (kbd "C-c C-s w") #'json-schema-edit-copy-pointer)
     map)
@@ -228,6 +206,7 @@ string of `type') are mapped to the object that holds them."
         (add-hook 'xref-backend-functions #'json-schema-edit-xref-backend nil t)
         (add-hook 'eldoc-documentation-functions
                   #'json-schema-edit-xref-eldoc-function nil t)
+        (add-hook 'flymake-diagnostic-functions #'json-schema-edit-lint-flymake nil t)
         (setq-local header-line-format
                     (if (listp header-line-format)
                         (cons json-schema-edit--header-line-format
@@ -235,6 +214,7 @@ string of `type') are mapped to the object that holds them."
                       (list json-schema-edit--header-line-format header-line-format))))
     (remove-hook 'xref-backend-functions #'json-schema-edit-xref-backend t)
     (remove-hook 'eldoc-documentation-functions #'json-schema-edit-xref-eldoc-function t)
+    (remove-hook 'flymake-diagnostic-functions #'json-schema-edit-lint-flymake t)
     (setq-local header-line-format
                 (if (listp header-line-format)
                     (delq nil (remq json-schema-edit--header-line-format header-line-format))

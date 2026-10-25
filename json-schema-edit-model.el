@@ -150,6 +150,56 @@ ROOT defaults to the top-level value of the current buffer."
   "Return SEGMENTS with every segment as a string, for comparison."
   (mapcar (lambda (s) (if (integerp s) (number-to-string s) s)) segments))
 
+;;;; Schema positions
+
+(defun json-schema-edit-model-schema-pointer-at (&optional pos)
+  "Return the pointer of the innermost schema object at POS.
+Positions inside keyword values that are not schemas (such as the
+string of `type') are mapped to the object that holds them."
+  (let ((segments (json-schema-edit-model-pointer-at pos)))
+    (while (and segments
+                (not (and (json-schema-edit-model-schema-position-p segments)
+                          (equal (treesit-node-type
+                                  (json-schema-edit-model-node-at-pointer segments))
+                                 "object"))))
+      (setq segments (butlast segments)))
+    segments))
+
+(defconst json-schema-edit-model--map-keywords
+  '("properties" "patternProperties" "$defs" "definitions" "dependentSchemas"
+    "dependencies")
+  "Keywords whose value maps names to subschemas.")
+
+(defconst json-schema-edit-model--schema-keywords
+  '("additionalItems" "additionalProperties" "contains" "not" "if" "then" "else"
+    "propertyNames" "unevaluatedItems" "unevaluatedProperties" "contentSchema")
+  "Keywords whose value is a subschema.")
+
+(defconst json-schema-edit-model--array-keywords
+  '("oneOf" "anyOf" "allOf" "prefixItems")
+  "Keywords whose value is an array of subschemas.")
+
+(defun json-schema-edit-model-schema-position-p (segments)
+  "Return non-nil if SEGMENTS address a subschema rather than a keyword value.
+The whole path is followed from the root, so that objects inside
+`examples', `default' or `enum' are not taken for schemas."
+  (let ((state 'schema))
+    (dolist (seg segments)
+      (setq state
+            (pcase state
+              ((or 'schema 'schema-or-array)
+               (cond
+                ((and (eq state 'schema-or-array) (integerp seg)) 'schema)
+                ((member seg json-schema-edit-model--map-keywords) 'map)
+                ((equal seg "items") 'schema-or-array)
+                ((member seg json-schema-edit-model--schema-keywords) 'schema)
+                ((member seg json-schema-edit-model--array-keywords) 'array)
+                (t 'data)))
+              ('map 'schema)
+              ('array (if (integerp seg) 'schema 'data))
+              (_ 'data))))
+    (memq state '(schema schema-or-array))))
+
 ;;;; Index of $ref / $anchor / $id
 
 (cl-defstruct (json-schema-edit-model-ref
