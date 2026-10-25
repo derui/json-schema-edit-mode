@@ -291,7 +291,9 @@ A TYPE that looks like a reference becomes a `$ref'."
                   (cons "$ref" type)
                 (cons "type" type))))
     (concat "{ " (json-schema-edit-edit--literal (car pair)) ": "
-            (json-schema-edit-edit--literal (cdr pair)) " }")))
+            (json-schema-edit-edit--literal (cdr pair))
+            (when (equal (cdr pair) "object") ", \"properties\": {}")
+            " }")))
 
 (defun json-schema-edit-edit--read-type ()
   "Read a type or a `$ref' target."

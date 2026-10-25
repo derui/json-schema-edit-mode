@@ -164,6 +164,18 @@
     (should-error (json-schema-edit-add-property nil "a" "string" nil)
                   :type 'user-error)))
 
+(ert-deftest json-schema-edit-phase2-test-add-object-property-nested ()
+  (json-schema-edit-phase2-test--with-json "{\"type\": \"object\"}"
+    (json-schema-edit-add-property nil "child" "object" nil)
+    (should (equal (json-schema-edit-phase2-test--parse)
+                   '((type . "object")
+                     (properties (child (type . "object") (properties))))))
+    (json-schema-edit-add-property '("properties" "child") "leaf" "string" nil)
+    (should (equal (json-schema-edit-phase2-test--parse)
+                   '((type . "object")
+                     (properties (child (type . "object")
+                                        (properties (leaf (type . "string"))))))))))
+
 (ert-deftest json-schema-edit-phase2-test-add-property-owner ()
   (json-schema-edit-phase2-test--with-copy "user.schema.json"
     ;; On a non-object property, the property goes next to it.
