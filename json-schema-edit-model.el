@@ -39,9 +39,7 @@
 (require 'subr-x)
 (require 'url-util)
 
-(declare-function treesit-node-child-by-field-name "treesit.c")
-
-(defgroup json-schema-edit nil
+(declare-function treesit-node-child-by-field-name "treesit.c") (defgroup json-schema-edit nil
   "Editing support for JSON Schema."
   :group 'languages
   :prefix "json-schema-edit-")
@@ -59,12 +57,14 @@
 Each key is compared with the whole value of `$schema', so a URI must
 be listed exactly as it is written in the schema.  Each value is one of
 `2020-12', `2019-09', `draft-07', `draft-06' or `draft-04'."
-  :type '(alist :key-type (string :tag "URI")
-                :value-type (choice (const 2020-12)
-                                    (const 2019-09)
-                                    (const draft-07)
-                                    (const draft-06)
-                                    (const draft-04)))
+  :type '(alist :key-type
+                (string :tag "URI")
+                :value-type (choice
+                             (const 2020-12)
+                             (const 2019-09)
+                             (const draft-07)
+                             (const draft-06)
+                             (const draft-04)))
   :group 'json-schema-edit)
 
 (defconst json-schema-edit-model--keyword-types
@@ -177,14 +177,16 @@ The key of a member is `json-schema-edit-model-node-key'."
 
 (defun json-schema-edit-model-member-beg (node)
   "Return where NODE starts with its key: the key of a member, else NODE."
-  (or (json-schema-edit-model-node-key-beg node)
-      (json-schema-edit-model-node-beg node)))
+  (or
+   (json-schema-edit-model-node-key-beg node)
+   (json-schema-edit-model-node-beg node)))
 
 (defun json-schema-edit-model-node-text (node)
   "Return the JSON text of NODE as written."
-  (substring (json-schema-edit-model-node-source node)
-             (1- (json-schema-edit-model-node-beg node))
-             (1- (json-schema-edit-model-node-end node))))
+  (substring
+   (json-schema-edit-model-node-source node)
+   (1- (json-schema-edit-model-node-beg node))
+   (1- (json-schema-edit-model-node-end node))))
 
 (defun json-schema-edit-model-string-value (node)
   "Return the decoded string of the string NODE, or nil."
@@ -194,16 +196,19 @@ The key of a member is `json-schema-edit-model-node-key'."
 (defun json-schema-edit-model-descendants (node)
   "Return NODE and every node below it, in document order."
   (when node
-    (cons node (mapcan #'json-schema-edit-model-descendants
-                       (json-schema-edit-model-children node)))))
+    (cons node
+          (mapcan #'json-schema-edit-model-descendants
+                  (json-schema-edit-model-children node)))))
 
 (defun json-schema-edit-model-key-name (key)
   "Return KEY as a string.
 KEY is a keyword symbol such as `properties', a string such as a
 property name, or an integer array index."
   (cond
-   ((symbolp key) (symbol-name key))
-   ((integerp key) (number-to-string key))
+   ((symbolp key)
+    (symbol-name key))
+   ((integerp key)
+    (number-to-string key))
    (t key)))
 
 (defun json-schema-edit-model-keyword (key)
@@ -211,15 +216,18 @@ property name, or an integer array index."
 KEY is a symbol, returned as is, or a string such as an object key or a
 pointer segment.  Integers give nil."
   (cond
-   ((symbolp key) key)
-   ((stringp key) (intern-soft key))))
+   ((symbolp key)
+    key)
+   ((stringp key)
+    (intern-soft key))))
 
 (defun json-schema-edit-model-get (node key)
   "Return the value node for KEY in the object NODE, or nil.
 KEY is a keyword symbol or a string; see
 `json-schema-edit-model-key-name'."
   (let ((key (json-schema-edit-model-key-name key)))
-    (cl-find key (json-schema-edit-model-members node)
+    (cl-find key
+             (json-schema-edit-model-members node)
              :key #'json-schema-edit-model-node-key :test #'equal)))
 
 (defun json-schema-edit-model-get-string (node key)
@@ -279,19 +287,24 @@ interpret them."
                          (string-match-p "\\`[0-9]+\\'" seg)
                          (string-to-number seg)))))
                  (and idx
-                      (nth idx (json-schema-edit-model-elements node)))))))))
+                      (nth idx
+                           (json-schema-edit-model-elements node)))))))))
   node)
 
 (defun json-schema-edit-model-node-at-pointer (model segments)
   "Return the node of MODEL reached by SEGMENTS from its root."
-  (json-schema-edit-model-lookup (json-schema-edit-model-root model) segments))
+  (json-schema-edit-model-lookup
+   (json-schema-edit-model-root model)
+   segments))
 
 ;;;; Positions
 
 (defun json-schema-edit-model--skip-whitespace (model pos)
   "Return the position of the first non-whitespace character from POS in MODEL."
-  (let ((i (string-match-p "[^ \t\n\r]" (json-schema-edit-model-source model)
-                           (max 0 (1- pos)))))
+  (let ((i
+         (string-match-p "[^ \t\n\r]"
+                         (json-schema-edit-model-source model)
+                         (max 0 (1- pos)))))
     (if i (1+ i) pos)))
 
 (defun json-schema-edit-model-node-at (model pos)
@@ -299,15 +312,19 @@ interpret them."
 A member is entered from its key.  In whitespace, the node starting
 after it is taken."
   (let* ((pos (json-schema-edit-model--skip-whitespace model pos))
-         (contains (lambda (n)
-                     (and (<= (json-schema-edit-model-member-beg n) pos)
-                          (< pos (json-schema-edit-model-node-end n)))))
+         (contains
+          (lambda (n)
+            (and
+             (<= (json-schema-edit-model-member-beg n) pos)
+             (< pos (json-schema-edit-model-node-end n)))))
          (node (json-schema-edit-model-root model))
          found)
     (when (and node (funcall contains node))
       (while node
         (setq found node
-              node (seq-find contains (json-schema-edit-model-children node)))))
+              node
+              (seq-find contains
+                        (json-schema-edit-model-children node)))))
     found))
 
 (defun json-schema-edit-model-pointer-at (model pos)
@@ -321,18 +338,23 @@ returned."
   "Return (LINE . COLUMN) of POS in the source of MODEL.
 LINE counts from 1; COLUMN is the display width before POS on its line."
   (let* ((source (json-schema-edit-model-source model))
-         (end (min (max 0 (1- pos)) (length source)))
-         (bol (let ((i (cl-position ?\n source :end end :from-end t)))
-                (if i (1+ i) 0))))
-    (cons (1+ (cl-count ?\n source :end end))
-          (string-width (substring source bol end)))))
+         (end
+          (min (max 0 (1- pos)) (length source)))
+         (bol
+          (let ((i (cl-position ?\n source :end end :from-end t)))
+            (if i (1+ i) 0))))
+    (cons
+     (1+ (cl-count ?\n source :end end))
+     (string-width (substring source bol end)))))
 
 (defun json-schema-edit-model-line-string (model pos)
   "Return the trimmed text of the line holding POS in the source of MODEL."
   (let* ((source (json-schema-edit-model-source model))
-         (i (min (max 0 (1- pos)) (length source)))
-         (bol (let ((j (cl-position ?\n source :end i :from-end t)))
-                (if j (1+ j) 0)))
+         (i
+          (min (max 0 (1- pos)) (length source)))
+         (bol
+          (let ((j (cl-position ?\n source :end i :from-end t)))
+            (if j (1+ j) 0)))
          (eol (or (cl-position ?\n source :start i) (length source))))
     (string-trim (substring source bol eol))))
 
@@ -398,10 +420,12 @@ The whole path is followed from the root, so that objects inside
   "Return every schema object of MODEL, in document order."
   (seq-filter
    (lambda (n)
-     (and (json-schema-edit-model-object-p n)
-          (json-schema-edit-model-schema-position-p
-           (json-schema-edit-model-node-pointer n))))
-   (json-schema-edit-model-descendants (json-schema-edit-model-root model))))
+     (and
+      (json-schema-edit-model-object-p n)
+      (json-schema-edit-model-schema-position-p
+       (json-schema-edit-model-node-pointer n))))
+   (json-schema-edit-model-descendants
+    (json-schema-edit-model-root model))))
 
 ;;;; Index of $ref / $anchor / $id
 
@@ -413,16 +437,19 @@ The whole path is followed from the root, so that objects inside
         (when-let* ((value (json-schema-edit-model-string-value m)))
           (pcase (json-schema-edit-model-node-key m)
             ("$ref"
-             (push (json-schema-edit-model-ref-create
-                    :value value
-                    :pointer (json-schema-edit-model-node-pointer object)
-                    :beg (json-schema-edit-model-node-beg m)
-                    :end (json-schema-edit-model-node-end m))
-                   refs))
+             (push
+              (json-schema-edit-model-ref-create
+               :value value
+               :pointer (json-schema-edit-model-node-pointer object)
+               :beg (json-schema-edit-model-node-beg m)
+               :end (json-schema-edit-model-node-end m))
+              refs))
             ("$anchor" (push (cons value object) anchors))
-            ("$dynamicAnchor" (push (cons value object) dynamic-anchors))
+            ("$dynamicAnchor"
+             (push (cons value object) dynamic-anchors))
             ("$id" (push (cons value object) ids))))))
-    (list :refs (nreverse refs)
+    (list :refs
+          (nreverse refs)
           :anchors (nconc (nreverse anchors) (nreverse dynamic-anchors))
           :ids (nreverse ids))))
 
@@ -468,8 +495,7 @@ missing or not listed there."
      (json-schema-edit-model-get root '$defs)
      (json-schema-edit-model-get root 'definitions)
      (seq-some
-      (lambda (keyword)
-        (json-schema-edit-model-get root keyword))
+      (lambda (keyword) (json-schema-edit-model-get root keyword))
       json-schema-edit-model--combinators))))
 
 (defun json-schema-edit-model-defs-keyword (model)
@@ -490,8 +516,9 @@ schema version: `definitions' up to draft-07, `$defs' after."
 
 (defun json-schema-edit-model-ref-siblings-ignored-p (model)
   "Return non-nil if keywords next to `$ref' are ignored by the version of MODEL."
-  (memq (json-schema-edit-model-schema-version model)
-        '(draft-04 draft-06 draft-07)))
+  (memq
+   (json-schema-edit-model-schema-version model)
+   '(draft-04 draft-06 draft-07)))
 
 ;;;; Resolving $ref
 
@@ -523,10 +550,13 @@ FRAGMENT is a JSON Pointer, an anchor, or nil or empty for the root."
     (json-schema-edit-model-root model))
    ((string-prefix-p "/" fragment)
     (json-schema-edit-model-node-at-pointer
-     model (json-schema-edit-model-pointer-decode fragment)))
+     model
+     (json-schema-edit-model-pointer-decode fragment)))
    (t
-    (cdr (assoc (url-unhex-string fragment)
-                (json-schema-edit-model-anchors model))))))
+    (cdr
+     (assoc
+      (url-unhex-string fragment)
+      (json-schema-edit-model-anchors model))))))
 
 (defun json-schema-edit-model--id-match-p (id resource)
   "Return non-nil if the `$id' ID names RESOURCE.
@@ -557,7 +587,8 @@ model or nil; it defaults to `json-schema-edit-model-of-file'."
     (cond
      ((string-empty-p resource)
       (json-schema-edit-model--target
-       nil model (json-schema-edit-model-resolve-fragment model fragment)))
+       nil model
+       (json-schema-edit-model-resolve-fragment model fragment)))
      ;; A resource embedded in this document by `$id'.
      ((when-let* ((id
                    (seq-find
@@ -568,13 +599,18 @@ model or nil; it defaults to `json-schema-edit-model-of-file'."
          nil model
          (if (and fragment (string-prefix-p "/" fragment))
              (json-schema-edit-model-lookup
-              (cdr id) (json-schema-edit-model-pointer-decode fragment))
+              (cdr id)
+              (json-schema-edit-model-pointer-decode fragment))
            (cdr id)))))
      ((json-schema-edit-model-remote-p resource)
       nil)
      (t
-      (let* ((file (json-schema-edit-model-resource-file model resource))
-             (other (funcall (or loader #'json-schema-edit-model-of-file) file)))
+      (let* ((file
+              (json-schema-edit-model-resource-file model resource))
+             (other
+              (funcall
+               (or loader #'json-schema-edit-model-of-file)
+               file)))
         (when other
           (json-schema-edit-model--target
            file other
@@ -597,7 +633,8 @@ model or nil; it defaults to `json-schema-edit-model-of-file'."
   "Return the types declared by `type' of the schema NODE, or nil."
   (when-let* ((type (json-schema-edit-model-get node 'type)))
     (pcase (json-schema-edit-model-json-type type)
-      ('string (list (json-schema-edit-model-string-value type)))
+      ('string
+       (list (json-schema-edit-model-string-value type)))
       ('array
        (delq nil
              (mapcar #'json-schema-edit-model-string-value
@@ -665,9 +702,7 @@ apply."
          (equal (treesit-node-type key) "string")
          (not (string-search "\\" text)))
         (substring text 1 -1)
-      (condition-case nil
-          (json-parse-string text)
-        (error nil)))))
+      (condition-case nil (json-parse-string text) (error nil)))))
 
 (defun json-schema-edit-model--convert (ts pointer source &optional key key-node)
   "Return the model node of the tree-sitter node TS at POINTER.
@@ -676,33 +711,39 @@ its parent, and KEY-NODE the tree-sitter key of a member."
   (let ((type (intern (treesit-node-type ts))))
     (json-schema-edit-model--node-create
      :type type
-     :value
-     (pcase type
-       ('object
-        (let (members)
-          (dolist (pair (treesit-node-children ts t))
-            (when-let* (((equal (treesit-node-type pair) "pair"))
-                        (k (treesit-node-child-by-field-name pair "key"))
-                        (v (treesit-node-child-by-field-name pair "value")))
-              (let ((name (json-schema-edit-model--ts-key k)))
-                (push (json-schema-edit-model--convert
-                       v (append pointer (list name)) source name k)
-                      members))))
-          (nreverse members)))
-       ('array
-        (let ((i 0) elements)
-          (dolist (child (json-schema-edit-model--ts-children ts))
-            (push (json-schema-edit-model--convert
-                   child (append pointer (list i)) source i)
-                  elements)
-            (setq i (1+ i)))
-          (nreverse elements)))
-       ('string
-        (condition-case nil
-            (json-parse-string (treesit-node-text ts t))
-          (error nil)))
-       ('number
-        (string-to-number (treesit-node-text ts t))))
+     :value (pcase type
+              ('object
+               (let (members)
+                 (dolist (pair (treesit-node-children ts t))
+                   (when-let* (((equal (treesit-node-type pair) "pair"))
+                               (k (treesit-node-child-by-field-name pair "key"))
+                               (v (treesit-node-child-by-field-name pair "value")))
+                     (let ((name (json-schema-edit-model--ts-key k)))
+                       (push
+                        (json-schema-edit-model--convert
+                         v
+                         (append pointer (list name))
+                         source name k)
+                        members))))
+                 (nreverse members)))
+              ('array
+               (let ((i 0)
+                     elements)
+                 (dolist (child (json-schema-edit-model--ts-children ts))
+                   (push
+                    (json-schema-edit-model--convert
+                     child
+                     (append pointer (list i))
+                     source i)
+                    elements)
+                   (setq i (1+ i)))
+                 (nreverse elements)))
+              ('string
+               (condition-case nil
+                   (json-parse-string (treesit-node-text ts t))
+                 (error nil)))
+              ('number
+               (string-to-number (treesit-node-text ts t))))
      :key key
      :key-beg (and key-node (treesit-node-start key-node))
      :key-end (and key-node (treesit-node-end key-node))
@@ -715,11 +756,16 @@ its parent, and KEY-NODE the tree-sitter key of a member."
   "Return the model of the current buffer, recorded as FILE, BUFFER and DIRECTORY."
   (save-restriction
     (widen)
-    (let* ((source (buffer-substring-no-properties (point-min) (point-max)))
-           (top (seq-find
-                 (lambda (n) (not (equal (treesit-node-type n) "comment")))
-                 (treesit-node-children
-                  (treesit-parser-root-node (json-schema-edit-model-parser)) t))))
+    (let* ((source
+            (buffer-substring-no-properties (point-min) (point-max)))
+           (top
+            (seq-find
+             (lambda (n)
+               (not (equal (treesit-node-type n) "comment")))
+             (treesit-node-children
+              (treesit-parser-root-node
+               (json-schema-edit-model-parser))
+              t))))
       (json-schema-edit-model-make
        (and top (json-schema-edit-model--convert top nil source))
        source file buffer directory))))
@@ -734,13 +780,15 @@ its parent, and KEY-NODE the tree-sitter key of a member."
       (setq json-schema-edit-model--current
             (cons tick
                   (json-schema-edit-model--build
-                   buffer-file-name (current-buffer)
+                   buffer-file-name
+                   (current-buffer)
                    (if buffer-file-name
                        (file-name-directory buffer-file-name)
                      default-directory)))))
     (cdr json-schema-edit-model--current)))
 
-(defvar json-schema-edit-model--file-cache (make-hash-table :test #'equal)
+(defvar json-schema-edit-model--file-cache
+  (make-hash-table :test #'equal)
   "File name to (MTIME . MODEL) of the files read from disk.")
 
 (defun json-schema-edit-model-of-file (file)
@@ -752,18 +800,22 @@ until FILE changes."
     (if (and buf
              (with-current-buffer buf
                (treesit-parser-list nil 'json)))
-        (with-current-buffer buf
-          (json-schema-edit-model-current))
+        (with-current-buffer buf (json-schema-edit-model-current))
       (when (file-readable-p file)
-        (let ((mtime (file-attribute-modification-time (file-attributes file)))
-              (cached (gethash file json-schema-edit-model--file-cache)))
+        (let ((mtime
+               (file-attribute-modification-time
+                (file-attributes file)))
+              (cached
+               (gethash file json-schema-edit-model--file-cache)))
           (if (equal (car cached) mtime)
               (cdr cached)
             (let ((model
                    (with-temp-buffer
                      (insert-file-contents file)
                      (json-schema-edit-model--build file nil nil))))
-              (puthash file (cons mtime model) json-schema-edit-model--file-cache)
+              (puthash file
+                       (cons mtime model)
+                       json-schema-edit-model--file-cache)
               model)))))))
 
 (defun json-schema-edit-model-from-string (string)
