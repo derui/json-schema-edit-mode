@@ -28,7 +28,7 @@
 (require 'json-schema-edit-outline)
 
 (defconst json-schema-edit-transform--annotations
-  '("title" "description" "$comment" "deprecated" "readOnly" "writeOnly")
+  '(title description $comment deprecated readOnly writeOnly)
   "Keywords kept on the outer schema when a schema is wrapped.")
 
 (defconst json-schema-edit-transform--combinators json-schema-edit-model--combinators
@@ -45,7 +45,8 @@
   "Split the members of NODE into (ANNOTATIONS . OTHERS)."
   (let (ann rest)
     (dolist (m (json-schema-edit-edit-members node))
-      (if (member (car m) json-schema-edit-transform--annotations)
+      (if (memq (json-schema-edit-model-keyword (car m))
+                json-schema-edit-transform--annotations)
           (push m ann)
         (push m rest)))
     (cons (nreverse ann) (nreverse rest))))
@@ -77,7 +78,7 @@ returns the members of the wrapper; annotations are kept in front."
                                            (treesit-node-text b t)))
                               (json-schema-edit-model--value-children
                                (json-schema-edit-model-get node comb))))
-                  '("anyOf" "oneOf")))))
+                  '(anyOf oneOf)))))
 
 (defun json-schema-edit-toggle-nullable (pointer)
   "Toggle whether the schema at POINTER accepts null.
@@ -85,21 +86,21 @@ A `type' gets or loses \"null\"; otherwise the schema is wrapped in, or
 unwrapped from, anyOf with {\"type\": \"null\"}."
   (interactive (list (json-schema-edit-model-schema-pointer-at)))
   (let* ((node (json-schema-edit-transform--node pointer))
-         (type (json-schema-edit-model-get node "type"))
+         (type (json-schema-edit-model-get node 'type))
          (types (json-schema-edit-model-declared-types node))
          (comb (seq-find (lambda (c)
                            (seq-some (lambda (b) (json-schema-edit-transform--null-branch-p
                                                   (treesit-node-text b t)))
                                      (json-schema-edit-model--value-children
                                       (json-schema-edit-model-get node c))))
-                         '("anyOf" "oneOf"))))
+                         '(anyOf oneOf))))
     (cond
      (comb (json-schema-edit-transform--remove-null-branch pointer comb))
      (type
       (let ((new (if (member "null" types) (remove "null" types) (append types '("null")))))
         (json-schema-edit-edit--with-undo
           (json-schema-edit-edit-set-member
-           node "type"
+           node 'type
            (if (= (length new) 1)
                (json-schema-edit-edit--literal (car new))
              (json-schema-edit-edit--array-text
@@ -107,7 +108,7 @@ unwrapped from, anyOf with {\"type\": \"null\"}."
      (t
       (json-schema-edit-transform--wrap
        pointer (lambda (inner)
-                 (list (cons "anyOf" (json-schema-edit-edit--array-text
+                 (list (cons 'anyOf (json-schema-edit-edit--array-text
                                       (list inner "{ \"type\": \"null\" }"))))))))))
 
 (defun json-schema-edit-transform--remove-null-branch (pointer comb)
@@ -120,7 +121,9 @@ unwrapped from, anyOf with {\"type\": \"null\"}."
                                    branches))
                (`(,ann . ,rest) (json-schema-edit-transform--split node)))
     (json-schema-edit-edit--with-undo
-      (if (and (= (length others) 1) (equal (mapcar #'car rest) (list comb)))
+      (if (and (= (length others) 1)
+               (equal (mapcar (lambda (m) (json-schema-edit-model-keyword (car m))) rest)
+                      (list comb)))
           ;; Only the combinator besides annotations: unwrap.
           (let ((inner (json-schema-edit-edit-members (car others))))
             (json-schema-edit-edit-replace-node
@@ -139,17 +142,17 @@ unwrapped from, anyOf with {\"type\": \"null\"}."
   (interactive (list (json-schema-edit-model-schema-pointer-at)))
   (json-schema-edit-transform--wrap
    pointer (lambda (inner)
-             (list (cons "type" "\"array\"") (cons "items" inner)))))
+             (list (cons 'type "\"array\"") (cons 'items inner)))))
 
 (defun json-schema-edit-wrap-combinator (pointer keyword)
-  "Wrap the schema at POINTER in KEYWORD (oneOf, anyOf or allOf)."
+  "Wrap the schema at POINTER in KEYWORD (`oneOf', `anyOf' or `allOf')."
   (interactive
    (list (json-schema-edit-model-schema-pointer-at)
-         (completing-read "Wrap in: "
-                          (mapcar #'symbol-name
-                                 json-schema-edit-transform--combinators)
-                          nil t
-                          nil nil "oneOf")))
+         (intern (completing-read "Wrap in: "
+                                  (mapcar #'symbol-name
+                                          json-schema-edit-transform--combinators)
+                                  nil t
+                                  nil nil "oneOf"))))
   (json-schema-edit-transform--wrap
    pointer (lambda (inner)
              (list (cons keyword (json-schema-edit-edit--array-text (list inner)))))))
@@ -174,12 +177,13 @@ The schema is replaced by a `$ref' to it."
     (when (json-schema-edit-model-get
            (json-schema-edit-model-get (json-schema-edit-model-root) kw) name)
       (user-error "Definition %s already exists" name))
-    (when (equal (seq-take pointer 2) (list kw name))
+    (when (equal (json-schema-edit-model-normalize-segments (seq-take pointer 2))
+                 (json-schema-edit-model-normalize-segments (list kw name)))
       (user-error "The schema is that definition"))
     (json-schema-edit-edit--with-undo
       (json-schema-edit-edit-replace-node
        node (json-schema-edit-edit--compact-object-text
-             (list (cons "$ref" (json-schema-edit-edit--literal ref)))))
+             (list (cons '$ref (json-schema-edit-edit--literal ref)))))
       (let* ((root (json-schema-edit-model-root))
              (defs (json-schema-edit-model-get root kw)))
         (if defs
@@ -194,16 +198,18 @@ Keywords next to the `$ref' are kept and win over the target's.  When
 no other `$ref' uses the definition, you are asked whether to delete it."
   (interactive (list (json-schema-edit-model-schema-pointer-at)))
   (let* ((node (json-schema-edit-transform--node pointer))
-         (ref (or (json-schema-edit-model-get-string node "$ref")
+         (ref (or (json-schema-edit-model-get-string node '$ref)
                   (user-error "No $ref here")))
          (res (json-schema-edit-model-resolve ref))
          (target-ptr (map-elt res :pointer)))
     (unless (and res (not (map-elt res :file)))
       (user-error "Only a $ref into this file can be inlined"))
-    (when (equal (seq-take pointer (length target-ptr)) target-ptr)
+    (when (equal (json-schema-edit-model-normalize-segments
+                  (seq-take pointer (length target-ptr)))
+                 (json-schema-edit-model-normalize-segments target-ptr))
       (user-error "The $ref points to a schema containing it"))
     (let* ((target (json-schema-edit-model-node-at-pointer target-ptr))
-           (own (seq-remove (lambda (m) (equal (car m) "$ref"))
+           (own (seq-remove (lambda (m) (eq (json-schema-edit-model-keyword (car m)) '$ref))
                             (json-schema-edit-edit-members node)))
            (members (append own
                             (seq-remove (lambda (m) (assoc (car m) own))
@@ -218,7 +224,8 @@ no other `$ref' uses the definition, you are asked whether to delete it."
                               (json-schema-edit-model-refs)))
            (delete (and (= others 1)
                         (= (length target-ptr) 2)
-                        (member (car target-ptr) '("$defs" "definitions"))
+                        (memq (json-schema-edit-model-keyword (car target-ptr))
+                              '($defs definitions))
                         (y-or-n-p (format "Delete the definition %s, now unused? "
                                           (cadr target-ptr))))))
       (json-schema-edit-edit--with-undo
@@ -235,27 +242,25 @@ no other `$ref' uses the definition, you are asked whether to delete it."
 
 (defun json-schema-edit-transform--combinator-at (&optional pointer)
   "Return (OWNER-POINTER KEYWORD INDEX) of the combinator at POINTER.
-INDEX is the branch POINTER is in, or nil when POINTER is the owner."
+KEYWORD is a symbol.  INDEX is the branch POINTER is in, or nil when
+POINTER is the owner."
   (let ((pointer (or pointer (json-schema-edit-model-schema-pointer-at)))
         found)
     ;; The innermost branch containing POINTER.
     (let ((p pointer))
       (while (and p (not found))
         (let ((n (length p)))
-          (when (and (>= n 2)
-                     (stringp (nth (- n 2) p))
-                     (memq (intern-soft (nth (- n 2) p))
-                           json-schema-edit-transform--combinators)
-                     (integerp (nth (1- n) p)))
-            (setq found (list (butlast p 2) (nth (- n 2) p) (nth (1- n) p)))))
+          (when-let* (((>= n 2))
+                      ((integerp (nth (1- n) p)))
+                      (kw (car (memq (json-schema-edit-model-keyword (nth (- n 2) p))
+                                     json-schema-edit-transform--combinators))))
+            (setq found (list (butlast p 2) kw (nth (1- n) p)))))
         (setq p (butlast p))))
     (or (let ((node (json-schema-edit-model-node-at-pointer pointer)))
-          (when-let* ((kw (seq-find (lambda (k)
-                                      (json-schema-edit-model-get
-                                       node (symbol-name k)))
+          (when-let* ((kw (seq-find (lambda (k) (json-schema-edit-model-get node k))
                                     json-schema-edit-transform--combinators)))
             (unless (and found (equal (car found) pointer))
-              (list pointer (symbol-name kw) nil))))
+              (list pointer kw nil))))
         found
         (user-error "No oneOf / anyOf / allOf at point"))))
 
@@ -275,12 +280,12 @@ branch fixes it with `const' and `required'; otherwise a type is asked."
           (if prop
               (let ((value (read-string (format "Value of %s: " prop))))
                 (json-schema-edit-edit--object-text
-                 (list (cons "type" "\"object\"")
-                       (cons "required" (concat "[" (json-schema-edit-edit--literal prop) "]"))
-                       (cons "properties"
+                 (list (cons 'type "\"object\"")
+                       (cons 'required (concat "[" (json-schema-edit-edit--literal prop) "]"))
+                       (cons 'properties
                              (json-schema-edit-edit--object-text
                               (list (cons prop (json-schema-edit-edit--compact-object-text
-                                                (list (cons "const" (json-schema-edit-edit--literal
+                                                (list (cons 'const (json-schema-edit-edit--literal
                                                                      value)))))))))))
             (json-schema-edit-edit--type-schema (json-schema-edit-edit--read-type)))))
     (json-schema-edit-edit--with-undo
@@ -339,12 +344,12 @@ branch fixes it with `const' and `required'; otherwise a type is asked."
   (json-schema-edit-move-branch owner keyword index 1))
 
 (defconst json-schema-edit-transform--switch-effects
-  '((("oneOf" . "anyOf") . "Looser: a value may now match several branches")
-    (("anyOf" . "oneOf") . "Stricter: values matching more than one branch now fail")
-    (("allOf" . "oneOf") . "Values must now match exactly one branch, not all")
-    (("allOf" . "anyOf") . "Values now need to match only one branch, not all")
-    (("oneOf" . "allOf") . "Values must now match every branch")
-    (("anyOf" . "allOf") . "Values must now match every branch"))
+  '(((oneOf . anyOf) . "Looser: a value may now match several branches")
+    ((anyOf . oneOf) . "Stricter: values matching more than one branch now fail")
+    ((allOf . oneOf) . "Values must now match exactly one branch, not all")
+    ((allOf . anyOf) . "Values now need to match only one branch, not all")
+    ((oneOf . allOf) . "Values must now match every branch")
+    ((anyOf . allOf) . "Values must now match every branch"))
   "What switching one combinator keyword to another does.")
 
 (defun json-schema-edit-switch-combinator (owner keyword new)
@@ -352,11 +357,10 @@ branch fixes it with `const' and `required'; otherwise a type is asked."
   (interactive
    (pcase-let ((`(,owner ,kw ,_) (json-schema-edit-transform--combinator-at)))
      (list owner kw
-           (completing-read (format "Switch %s to: " kw)
-                            (mapcar #'symbol-name
-                                    (delq (intern-soft kw)
-                                          json-schema-edit-transform--combinators))
-                            nil t))))
+           (intern (completing-read (format "Switch %s to: " kw)
+                                    (mapcar #'symbol-name
+                                            (remq kw json-schema-edit-transform--combinators))
+                                    nil t)))))
   (let* ((node (json-schema-edit-model-node-at-pointer owner))
          (effect (cdr (assoc (cons keyword new) json-schema-edit-transform--switch-effects))))
     (when (json-schema-edit-model-get node new)
@@ -368,7 +372,7 @@ branch fixes it with `const' and `required'; otherwise a type is asked."
          (list (json-schema-edit-edit--node-replacement
                 (treesit-node-child-by-field-name
                  (treesit-node-parent (json-schema-edit-model-get node keyword)) "key")
-                (json-schema-edit-edit--literal new)))))
+                (json-schema-edit-edit--key-literal new)))))
       (when effect (message "%s" effect)))
     (append owner (list new))))
 
@@ -389,8 +393,8 @@ made required.  A branch that is a local `$ref' is edited in its target."
              (let* ((target (nth 3 b))
                     (current (json-schema-edit-model-get
                               (json-schema-edit-model-get
-                               (json-schema-edit-model-get target "properties") prop)
-                              "const")))
+                               (json-schema-edit-model-get target 'properties) prop)
+                              'const)))
                (read-string (format "Value of %s for branch %s: " prop
                                     (json-schema-edit-outline--branch-name (cadr b) i))
                             (if current
@@ -405,15 +409,15 @@ made required.  A branch that is a local `$ref' is edited in its target."
                for value in values
                do (let* ((ptr (nth 2 b))
                          (const (json-schema-edit-edit--compact-object-text
-                                 (list (cons "const" (json-schema-edit-edit--literal value)))))
+                                 (list (cons 'const (json-schema-edit-edit--literal value)))))
                          (props (json-schema-edit-model-node-at-pointer
-                                 (append ptr '("properties")))))
+                                 (append ptr '(properties)))))
                     (cond
                      ((json-schema-edit-model-get props prop)
                       (json-schema-edit-edit-set-member props prop const))
                      (props (json-schema-edit-edit-add-member props prop const))
                      (t (json-schema-edit-edit-add-member
-                         (json-schema-edit-model-node-at-pointer ptr) "properties"
+                         (json-schema-edit-model-node-at-pointer ptr) 'properties
                          (json-schema-edit-edit--object-text (list (cons prop const))))))
                     (json-schema-edit-edit--add-required ptr prop))))))
 
@@ -424,7 +428,7 @@ branch.  Only inline branches are considered."
   (interactive (seq-take (json-schema-edit-transform--combinator-at) 2))
   (let* ((branches (json-schema-edit-transform--branch-nodes owner keyword))
          (props-of (lambda (b) (json-schema-edit-edit-members
-                                (json-schema-edit-model-get b "properties"))))
+                                (json-schema-edit-model-get b 'properties))))
          (common (seq-filter
                   (lambda (m)
                     (seq-every-p (lambda (b) (equal (assoc (car m) (funcall props-of b)) m))
@@ -434,14 +438,14 @@ branch.  Only inline branches are considered."
                     (lambda (name)
                       (seq-every-p (lambda (b) (member name (json-schema-edit-edit--names
                                                              (json-schema-edit-model-get
-                                                              b "required"))))
+                                                              b 'required))))
                                    branches))
                     (mapcar #'car common))))
     (when (or (null common) (< (length branches) 2))
       (user-error "No property is common to every branch"))
     (when (json-schema-edit-model-get
            (json-schema-edit-model-get (json-schema-edit-model-node-at-pointer owner)
-                                       "properties")
+                                       'properties)
            (caar common))
       (user-error "Property %s already exists outside" (caar common)))
     (json-schema-edit-edit--with-undo
@@ -451,16 +455,16 @@ branch.  Only inline branches are considered."
           (dolist (name (mapcar #'car common))
             (let ((branch (json-schema-edit-model-node-at-pointer ptr)))
               (json-schema-edit-edit-remove-member
-               (json-schema-edit-model-get branch "properties") name))
+               (json-schema-edit-model-get branch 'properties) name))
             (when (member name required)
               (json-schema-edit-transform--remove-required ptr name)))))
       (dolist (m common)
         (let* ((node (json-schema-edit-model-node-at-pointer owner))
-               (props (json-schema-edit-model-get node "properties")))
+               (props (json-schema-edit-model-get node 'properties)))
           (if props
               (json-schema-edit-edit-add-member props (car m) (cdr m))
             (json-schema-edit-edit-add-member
-             node "properties" (json-schema-edit-edit--object-text (list m))))))
+             node 'properties (json-schema-edit-edit--object-text (list m))))))
       (dolist (name required)
         (json-schema-edit-edit--add-required owner name)))
     (mapcar #'car common)))
@@ -468,10 +472,10 @@ branch.  Only inline branches are considered."
 (defun json-schema-edit-transform--remove-required (pointer name)
   "Remove NAME from `required' of the schema at POINTER, dropping it if empty."
   (let* ((node (json-schema-edit-model-node-at-pointer pointer))
-         (required (json-schema-edit-model-get node "required"))
+         (required (json-schema-edit-model-get node 'required))
          (elements (json-schema-edit-model--value-children required)))
     (if (equal (json-schema-edit-edit--names required) (list name))
-        (json-schema-edit-edit-remove-member node "required")
+        (json-schema-edit-edit-remove-member node 'required)
       (when-let* ((n (seq-find (lambda (n) (equal (json-schema-edit-model-string-value n) name))
                                elements)))
         (json-schema-edit-edit-remove-element required n)))))

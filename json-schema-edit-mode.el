@@ -64,8 +64,8 @@ schema; nil disables the header line."
 
 (defun json-schema-edit--branch-name (node index)
   "Return a name for the combinator branch NODE at INDEX."
-  (or (json-schema-edit-model-get-string node "title")
-      (when-let* ((ref (json-schema-edit-model-get-string node "$ref")))
+  (or (json-schema-edit-model-get-string node 'title)
+      (when-let* ((ref (json-schema-edit-model-get-string node '$ref)))
         (car (last (split-string ref "/"))))
       (format "#%d" (1+ index))))
 
@@ -77,32 +77,31 @@ point into `$defs' / `definitions'."
         (node (json-schema-edit-model-root)))
     (while segments
       (let ((seg (pop segments)))
-        (pcase seg
-          ((or "$defs" "definitions")
+        (pcase (json-schema-edit-model-keyword seg)
+          ((or '$defs 'definitions)
            (when segments
              (let ((name (pop segments)))
                (setq labels (list name)
                      node (json-schema-edit-model-node-at-pointer
                            (list seg name) node)))
              (setq seg nil)))
-          ((or "properties" "patternProperties" "dependentSchemas")
+          ((and (or 'properties 'patternProperties 'dependentSchemas) keyword)
            (when segments
              (let ((name (pop segments)))
-               (push (if (equal seg "patternProperties") (format "/%s/" name) name)
+               (push (if (eq keyword 'patternProperties) (format "/%s/" name) name)
                      labels)
                (setq node (json-schema-edit-model-node-at-pointer (list seg name) node)))
              (setq seg nil)))
-          ((or "items" "additionalItems" "contains")
+          ((or 'items 'additionalItems 'contains)
            (push "[]" labels))
-          ("prefixItems"
+          ('prefixItems
            (when segments
              (let ((idx (pop segments)))
                (push (format "[%s]" idx) labels)
                (setq node (json-schema-edit-model-node-at-pointer (list seg idx) node)))
              (setq seg nil)))
-          ("additionalProperties" (push "{*}" labels))
-          ((pred (lambda (s)
-                   (memq (intern-soft s) json-schema-edit-model--combinators)))
+          ('additionalProperties (push "{*}" labels))
+          ((pred (lambda (k) (memq k json-schema-edit-model--combinators)))
            (when segments
              (let* ((idx (pop segments))
                     (branch (json-schema-edit-model-node-at-pointer (list seg idx) node))
@@ -118,9 +117,10 @@ point into `$defs' / `definitions'."
 (defun json-schema-edit--required-p (segments)
   "Return non-nil if the property at SEGMENTS is listed in `required'."
   (let ((n (length segments)))
-    (when (and (>= n 2) (equal (nth (- n 2) segments) "properties"))
+    (when (and (>= n 2)
+               (eq (json-schema-edit-model-keyword (nth (- n 2) segments)) 'properties))
       (let* ((owner (json-schema-edit-model-node-at-pointer (butlast segments 2)))
-             (required (json-schema-edit-model-get owner "required"))
+             (required (json-schema-edit-model-get owner 'required))
              (name (car (last segments))))
         (and required
              (equal (treesit-node-type required) "array")

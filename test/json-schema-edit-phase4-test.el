@@ -86,7 +86,7 @@
 
 (ert-deftest json-schema-edit-phase4-test-wrap-combinator ()
   (json-schema-edit-phase4-test--with-json "{\"properties\": {\"a\": {\"type\": \"string\"}}}"
-    (json-schema-edit-wrap-combinator '("properties" "a") "oneOf")
+    (json-schema-edit-wrap-combinator '("properties" "a") 'oneOf)
     (should (equal (json-schema-edit-phase4-test--parse)
                    '((properties (a (oneOf ((type . "string"))))))))))
 
@@ -140,14 +140,14 @@
 
 (ert-deftest json-schema-edit-phase4-test-combinator-at ()
   (json-schema-edit-phase4-test--with-json json-schema-edit-phase4-test--union
-    (should (equal (json-schema-edit-transform--combinator-at '()) '(() "oneOf" nil)))
+    (should (equal (json-schema-edit-transform--combinator-at '()) '(() oneOf nil)))
     (should (equal (json-schema-edit-transform--combinator-at '("oneOf" 1 "properties" "id"))
-                   '(() "oneOf" 1)))))
+                   '(() oneOf 1)))))
 
 (ert-deftest json-schema-edit-phase4-test-add-branch-discriminated ()
   (json-schema-edit-phase4-test--with-json json-schema-edit-phase4-test--union
     (json-schema-edit-phase4-test--answers '("c")
-      (should (equal (json-schema-edit-add-branch nil "oneOf") '("oneOf" 2))))
+      (should (equal (json-schema-edit-add-branch nil 'oneOf) '(oneOf 2))))
     (let-alist (json-schema-edit-phase4-test--parse)
       (should (equal (nth 2 .oneOf)
                      '((type . "object") (required "kind") (properties (kind (const . "c")))))))
@@ -156,28 +156,28 @@
 (ert-deftest json-schema-edit-phase4-test-add-branch-plain ()
   (json-schema-edit-phase4-test--with-json "{\"anyOf\": [{\"type\": \"string\"}]}"
     (json-schema-edit-phase4-test--answers '("integer")
-      (json-schema-edit-add-branch nil "anyOf"))
+      (json-schema-edit-add-branch nil 'anyOf))
     (should (equal (json-schema-edit-phase4-test--parse)
                    '((anyOf ((type . "string")) ((type . "integer"))))))))
 
 (ert-deftest json-schema-edit-phase4-test-remove-duplicate-move ()
   (json-schema-edit-phase4-test--with-json
       "{\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"integer\"}, {\"type\": \"null\"}]}"
-    (json-schema-edit-remove-branch nil "anyOf" 2)
+    (json-schema-edit-remove-branch nil 'anyOf 2)
     (should (equal (json-schema-edit-phase4-test--parse)
                    '((anyOf ((type . "string")) ((type . "integer"))))))
-    (should (equal (json-schema-edit-duplicate-branch nil "anyOf" 0) '("anyOf" 1)))
+    (should (equal (json-schema-edit-duplicate-branch nil 'anyOf 0) '(anyOf 1)))
     (should (equal (json-schema-edit-phase4-test--parse)
                    '((anyOf ((type . "string")) ((type . "string")) ((type . "integer"))))))
-    (json-schema-edit-move-branch-up nil "anyOf" 2)
+    (json-schema-edit-move-branch-up nil 'anyOf 2)
     (should (equal (json-schema-edit-phase4-test--parse)
                    '((anyOf ((type . "string")) ((type . "integer")) ((type . "string"))))))
-    (should-error (json-schema-edit-move-branch-down nil "anyOf" 2) :type 'user-error)))
+    (should-error (json-schema-edit-move-branch-down nil 'anyOf 2) :type 'user-error)))
 
 (ert-deftest json-schema-edit-phase4-test-switch-combinator ()
   (json-schema-edit-phase4-test--with-json "{\"oneOf\": [{}], \"anyOf\": []}"
-    (should-error (json-schema-edit-switch-combinator nil "oneOf" "anyOf") :type 'user-error)
-    (json-schema-edit-switch-combinator nil "oneOf" "allOf")
+    (should-error (json-schema-edit-switch-combinator nil 'oneOf 'anyOf) :type 'user-error)
+    (json-schema-edit-switch-combinator nil 'oneOf 'allOf)
     (should (equal (json-schema-edit-phase4-test--parse) '((allOf nil) (anyOf))))))
 
 (ert-deftest json-schema-edit-phase4-test-set-discriminator ()
@@ -186,7 +186,7 @@
                    {\"$ref\": \"#/$defs/Dog\"}],
         \"$defs\": {\"Dog\": {\"type\": \"object\"}}}"
     (json-schema-edit-phase4-test--answers '("cat" "dog")
-      (json-schema-edit-set-discriminator nil "oneOf" "pet"))
+      (json-schema-edit-set-discriminator nil 'oneOf "pet"))
     (let-alist (json-schema-edit-phase4-test--parse)
       (should (equal (car .oneOf)
                      '((title . "Cat") (type . "object")
@@ -198,19 +198,19 @@
                     (json-schema-edit-model-root) nil "oneOf")
                    "pet"))
     (json-schema-edit-phase4-test--answers '("x" "x")
-      (should-error (json-schema-edit-set-discriminator nil "oneOf" "pet")
+      (should-error (json-schema-edit-set-discriminator nil 'oneOf "pet")
                     :type 'user-error))))
 
 (ert-deftest json-schema-edit-phase4-test-factor-common ()
   (json-schema-edit-phase4-test--with-json json-schema-edit-phase4-test--union
-    (should (equal (json-schema-edit-factor-common-properties nil "oneOf") '("id")))
+    (should (equal (json-schema-edit-factor-common-properties nil 'oneOf) '("id")))
     (let-alist (json-schema-edit-phase4-test--parse)
       (should (equal .properties '((id (type . "string")))))
       (should (equal .required '("id")))
       (should (equal (car .oneOf)
                      '((type . "object") (required "kind")
                        (properties (kind (const . "a")))))))
-    (should-error (json-schema-edit-factor-common-properties nil "oneOf") :type 'user-error)))
+    (should-error (json-schema-edit-factor-common-properties nil 'oneOf) :type 'user-error)))
 
 ;;;; Constraint ranges
 
@@ -247,7 +247,7 @@
     (should (equal (json-schema-edit-constraint--range-text) "..5"))
     (json-schema-edit-constraint-set-range "1..254")
     (should (equal (json-schema-edit-constraint--range-text) "1..254"))
-    (should (equal (json-schema-edit-constraint--inapplicable) '("minimum")))
+    (should (equal (json-schema-edit-constraint--inapplicable) '(minimum)))
     (json-schema-edit-phase4-test--answers '("^\\d+$" "email")
       (call-interactively #'json-schema-edit-constraint-pattern)
       (call-interactively #'json-schema-edit-constraint-format))

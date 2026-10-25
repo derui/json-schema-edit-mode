@@ -29,7 +29,7 @@
   (pcase (ignore-errors (json-schema-edit-transform--combinator-at))
     (`(,owner ,kw ,i)
      (format "%s of %s%s"
-             (propertize kw 'face 'font-lock-keyword-face)
+             (propertize (symbol-name kw) 'face 'font-lock-keyword-face)
              (json-schema-edit-model-pointer-fragment owner)
              (if i (format ", branch #%d" (1+ i)) "")))
     (_ (propertize "No oneOf / anyOf / allOf at point" 'face 'warning))))

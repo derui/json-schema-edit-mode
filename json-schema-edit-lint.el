@@ -58,8 +58,8 @@ current buffer; nil disables the check."
 
 (defun json-schema-edit-lint--check-required (schema)
   "Return diagnostics for `required' names missing from `properties' of SCHEMA."
-  (let ((props (json-schema-edit-model-get schema "properties"))
-        (required (json-schema-edit-model-get schema "required")))
+  (let ((props (json-schema-edit-model-get schema 'properties))
+        (required (json-schema-edit-model-get schema 'required)))
     (when (and (equal (treesit-node-type props) "object")
                (equal (treesit-node-type required) "array"))
       (delq nil
@@ -102,20 +102,20 @@ current buffer; nil disables the check."
 (defun json-schema-edit-lint--const-of (target prop)
   "Return the `const' node of the property PROP in the schema TARGET."
   (json-schema-edit-model-get
-   (json-schema-edit-model-get (json-schema-edit-model-get target "properties") prop)
-   "const"))
+   (json-schema-edit-model-get (json-schema-edit-model-get target 'properties) prop)
+   'const))
 
 (defun json-schema-edit-lint--discriminator-candidate (node branches)
   "Return the property of NODE meant to discriminate BRANCHES, or nil.
 It is the OpenAPI `discriminator.propertyName', or a property fixed by
 `const' in at least two branches and half of them."
   (or (json-schema-edit-model-get-string
-       (json-schema-edit-model-get node "discriminator") "propertyName")
+       (json-schema-edit-model-get node 'discriminator) 'propertyName)
       (let ((counts nil))
         (dolist (b branches)
           (dolist (pair (json-schema-edit-model-object-pairs
-                         (json-schema-edit-model-get (nth 3 b) "properties")))
-            (when (json-schema-edit-model-get (json-schema-edit-model-pair-value pair) "const")
+                         (json-schema-edit-model-get (nth 3 b) 'properties)))
+            (when (json-schema-edit-model-get (json-schema-edit-model-pair-value pair) 'const)
               (cl-incf (alist-get (json-schema-edit-model-pair-key pair) counts 0 nil #'equal)))))
         (car (seq-find (lambda (c) (and (>= (cdr c) 2) (>= (* 2 (cdr c)) (length branches))))
                        (nreverse counts))))))
@@ -140,7 +140,7 @@ It is the OpenAPI `discriminator.propertyName', or a property fixed by
            (t (push (treesit-node-text c t) seen)))))
       (dolist (pair (json-schema-edit-model-object-pairs
                      (json-schema-edit-model-get
-                      (json-schema-edit-model-get node "discriminator") "mapping")))
+                      (json-schema-edit-model-get node 'discriminator) 'mapping)))
         (let* ((value (json-schema-edit-model-pair-key pair))
                (ref (json-schema-edit-model-string-value (json-schema-edit-model-pair-value pair)))
                (res (and ref (json-schema-edit-model-resolve ref)))
@@ -163,8 +163,9 @@ same type."
     (seq-do-indexed
      (lambda (b i)
        (let* ((branch (cadr b))
-              (key (if (seq-every-p (lambda (p) (member (json-schema-edit-model-pair-key p)
-                                                        '("type" "title" "description")))
+              (key (if (seq-every-p (lambda (p) (memq (json-schema-edit-model-keyword
+                                                       (json-schema-edit-model-pair-key p))
+                                                      '(type title description)))
                                     (json-schema-edit-model-object-pairs branch))
                        (format "type:%s" (json-schema-edit-model-declared-types branch))
                      (replace-regexp-in-string "[ \t\n]+" "" (treesit-node-text branch t))))
@@ -176,13 +177,13 @@ same type."
                     (1+ (cdr other)) (1+ i))
                    result)
            (push (cons key i) seen))))
-     (json-schema-edit-outline-branches node pointer "oneOf"))
+     (json-schema-edit-outline-branches node pointer 'oneOf))
     (nreverse result)))
 
 (defun json-schema-edit-lint--check-all-of (node pointer)
   "Return diagnostics for allOf of NODE at POINTER."
-  (let* ((branches (json-schema-edit-outline-branches node pointer "allOf"))
-         (all-of (json-schema-edit-model-get node "allOf"))
+  (let* ((branches (json-schema-edit-outline-branches node pointer 'allOf))
+         (all-of (json-schema-edit-model-get node 'allOf))
          (widen (lambda (types) (if (member "number" types) (cons "integer" types) types)))
          (possible :any)
          result)
@@ -200,9 +201,9 @@ same type."
             result))
     (let ((names-of (lambda (n) (mapcar #'json-schema-edit-model-pair-key
                                         (json-schema-edit-model-object-pairs
-                                         (json-schema-edit-model-get n "properties"))))))
+                                         (json-schema-edit-model-get n 'properties))))))
       (dolist (b branches)
-        (let ((additional (json-schema-edit-model-get (nth 3 b) "additionalProperties")))
+        (let ((additional (json-schema-edit-model-get (nth 3 b) 'additionalProperties)))
           (when (equal (treesit-node-type additional) "false")
             (let* ((own (funcall names-of (nth 3 b)))
                    (others (seq-uniq
@@ -226,10 +227,10 @@ same type."
    (mapcan (lambda (comb)
              (when (equal (treesit-node-type (json-schema-edit-model-get schema comb)) "array")
                (append (json-schema-edit-lint--check-discriminated schema pointer comb)
-                       (when (equal comb "oneOf")
+                       (when (eq comb 'oneOf)
                          (json-schema-edit-lint--check-overlap schema pointer)))))
-           '("oneOf" "anyOf"))
-   (when (equal (treesit-node-type (json-schema-edit-model-get schema "allOf")) "array")
+           '(oneOf anyOf))
+   (when (equal (treesit-node-type (json-schema-edit-model-get schema 'allOf)) "array")
      (json-schema-edit-lint--check-all-of schema pointer))))
 
 ;;;; Unused definitions
@@ -284,16 +285,16 @@ same type."
     (let ((used (json-schema-edit-lint--used-pointers))
           (root (json-schema-edit-model-root))
           result)
-      (dolist (keyword '("$defs" "definitions"))
+      (dolist (keyword '($defs definitions))
         (dolist (pair (json-schema-edit-model-object-pairs
                        (json-schema-edit-model-get root keyword)))
           (let* ((name (json-schema-edit-model-pair-key pair))
-                 (prefix (list keyword name))
+                 (prefix (json-schema-edit-model-normalize-segments (list keyword name)))
                  (value (json-schema-edit-model-pair-value pair)))
             (unless (or (seq-some (lambda (p) (equal (seq-take p 2) prefix)) used)
                         ;; Reachable by `$anchor' or `$id' from outside.
-                        (json-schema-edit-model-get value "$anchor")
-                        (json-schema-edit-model-get value "$id"))
+                        (json-schema-edit-model-get value '$anchor)
+                        (json-schema-edit-model-get value '$id))
               (push (json-schema-edit-lint--diag
                      (treesit-node-child-by-field-name pair "key") :note
                      "Definition `%s' is not used" name)

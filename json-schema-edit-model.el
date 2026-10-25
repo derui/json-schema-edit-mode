@@ -14,7 +14,12 @@
 ;;
 ;; Locations inside a schema are expressed as JSON Pointers (RFC 6901).
 ;; Internally a pointer is a list of segments: strings for object keys
-;; and integers for array indices.
+;; and integers for array indices.  Pointers built by code may also use
+;; symbols for keywords, such as (properties "name"); compare pointers
+;; after `json-schema-edit-model-normalize-segments'.
+;;
+;; Schema keywords are handled as symbols (`properties', `$ref', ...),
+;; while property names and other data from the buffer stay strings.
 
 ;;; Code:
 
@@ -123,6 +128,23 @@ be listed exactly as it is written in the schema.  Each value is one of
         (json-parse-string (treesit-node-text node t))
       (error nil))))
 
+(defun json-schema-edit-model-key-name (key)
+  "Return KEY as a string.
+KEY is a keyword symbol such as `properties', a string such as a
+property name, or an integer array index."
+  (cond
+   ((symbolp key) (symbol-name key))
+   ((integerp key) (number-to-string key))
+   (t key)))
+
+(defun json-schema-edit-model-keyword (key)
+  "Return the keyword symbol named by KEY, or nil.
+KEY is a symbol, returned as is, or a string such as an object key or a
+pointer segment.  Integers give nil."
+  (cond
+   ((symbolp key) key)
+   ((stringp key) (intern-soft key))))
+
 (defun json-schema-edit-model-pair-key (pair)
   "Return the decoded key of PAIR."
   (let* ((key (treesit-node-child-by-field-name pair "key"))
@@ -167,8 +189,11 @@ BODY must not modify the buffers it reads."
    (json-schema-edit-model-object-pairs node)))
 
 (defun json-schema-edit-model-get (node key)
-  "Return the value node for KEY in the object NODE, or nil."
+  "Return the value node for KEY in the object NODE, or nil.
+KEY is a keyword symbol or a string; see
+`json-schema-edit-model-key-name'."
   (when (and node (equal (treesit-node-type node) "object"))
+    (setq key (json-schema-edit-model-key-name key))
     (if json-schema-edit-model--members-cache
         (let* ((id (cons (current-buffer) (treesit-node-start node)))
                (members
@@ -197,9 +222,9 @@ BODY must not modify the buffers it reads."
   (mapconcat
    (lambda (s)
      (concat "/"
-             (if (integerp s)
-                 (number-to-string s)
-               (string-replace "/" "~1" (string-replace "~" "~0" s)))))
+             (string-replace "/" "~1"
+                             (string-replace "~" "~0"
+                                             (json-schema-edit-model-key-name s)))))
    segments ""))
 
 (defun json-schema-edit-model-pointer-fragment (segments)
@@ -252,14 +277,13 @@ ROOT defaults to the top-level value of the current buffer."
         (setq node
               (pcase (treesit-node-type node)
                 ("object"
-                 (json-schema-edit-model-get
-                  node
-                  (if (integerp seg) (number-to-string seg) seg)))
+                 (json-schema-edit-model-get node seg))
                 ("array"
                  (let ((idx
                         (if (integerp seg)
                             seg
                           (and
+                           (stringp seg)
                            (string-match-p "\\`[0-9]+\\'" seg)
                            (string-to-number seg)))))
                    (and idx
@@ -269,10 +293,7 @@ ROOT defaults to the top-level value of the current buffer."
 
 (defun json-schema-edit-model-normalize-segments (segments)
   "Return SEGMENTS with every segment as a string, for comparison."
-  (mapcar
-   (lambda (s)
-     (if (integerp s) (number-to-string s) s))
-   segments))
+  (mapcar #'json-schema-edit-model-key-name segments))
 
 ;;;; Schema positions
 
@@ -292,17 +313,18 @@ string of `type') are mapped to the object that holds them."
     segments))
 
 (defconst json-schema-edit-model--map-keywords
-  '("properties" "patternProperties" "$defs" "definitions" "dependentSchemas"
-    "dependencies")
+  '(properties patternProperties $defs definitions dependentSchemas
+               dependencies)
   "Keywords whose value maps names to subschemas.")
 
 (defconst json-schema-edit-model--schema-keywords
-  '("additionalItems" "additionalProperties" "contains" "not" "if" "then" "else"
-    "propertyNames" "unevaluatedItems" "unevaluatedProperties" "contentSchema")
+  '(additionalItems additionalProperties contains not if then else
+                    propertyNames unevaluatedItems unevaluatedProperties
+                    contentSchema)
   "Keywords whose value is a subschema.")
 
 (defconst json-schema-edit-model--array-keywords
-  '("oneOf" "anyOf" "allOf" "prefixItems")
+  '(oneOf anyOf allOf prefixItems)
   "Keywords whose value is an array of subschemas.")
 
 (defun json-schema-edit-model-schema-position-p (segments)
@@ -314,18 +336,19 @@ The whole path is followed from the root, so that objects inside
       (setq state
             (pcase state
               ((or 'schema 'schema-or-array)
-               (cond
-                ((and (eq state 'schema-or-array) (integerp seg))
-                 'schema)
-                ((member seg json-schema-edit-model--map-keywords)
-                 'map)
-                ((equal seg "items")
-                 'schema-or-array)
-                ((member seg json-schema-edit-model--schema-keywords)
-                 'schema)
-                ((member seg json-schema-edit-model--array-keywords)
-                 'array)
-                (t 'data)))
+               (let ((keyword (json-schema-edit-model-keyword seg)))
+                 (cond
+                  ((and (eq state 'schema-or-array) (integerp seg))
+                   'schema)
+                  ((memq keyword json-schema-edit-model--map-keywords)
+                   'map)
+                  ((eq keyword 'items)
+                   'schema-or-array)
+                  ((memq keyword json-schema-edit-model--schema-keywords)
+                   'schema)
+                  ((memq keyword json-schema-edit-model--array-keywords)
+                   'array)
+                  (t 'data))))
               ('map 'schema)
               ('array
                (if (integerp seg) 'schema 'data))
@@ -347,8 +370,10 @@ The whole path is followed from the root, so that objects inside
   "Cached index of the buffer as (TICK . PLIST).")
 
 (defun json-schema-edit-model--collect (keyword)
-  "Return (VALUE-NODE . OBJECT-NODE) for every KEYWORD pair with a string value."
-  (let ((captures
+  "Return (VALUE-NODE . OBJECT-NODE) for every KEYWORD pair with a string value.
+KEYWORD is a symbol."
+  (let ((name (symbol-name keyword))
+        (captures
          (treesit-query-capture
           (json-schema-edit-model--parser)
           '((pair key: (string) value: (string))
@@ -356,7 +381,7 @@ The whole path is followed from the root, so that objects inside
         result)
     (dolist (c captures)
       (let ((pair (cdr c)))
-        (when (equal (json-schema-edit-model-pair-key pair) keyword)
+        (when (equal (json-schema-edit-model-pair-key pair) name)
           (push
            (cons
             (json-schema-edit-model-pair-value pair)
@@ -375,21 +400,21 @@ The whole path is followed from the root, so that objects inside
                :pointer (json-schema-edit-model-pointer-at (treesit-node-start v))
                :beg (treesit-node-start v)
                :end (treesit-node-end v))))
-          (json-schema-edit-model--collect "$ref"))
+          (json-schema-edit-model--collect '$ref))
    :anchors (mapcar
              (lambda (c)
                (cons
                 (json-schema-edit-model-string-value (car c))
                 (treesit-node-start (cdr c))))
              (append
-              (json-schema-edit-model--collect "$anchor")
-              (json-schema-edit-model--collect "$dynamicAnchor")))
+              (json-schema-edit-model--collect '$anchor)
+              (json-schema-edit-model--collect '$dynamicAnchor)))
    :ids (mapcar
          (lambda (c)
            (cons
             (json-schema-edit-model-string-value (car c))
             (treesit-node-start (cdr c))))
-         (json-schema-edit-model--collect "$id"))))
+         (json-schema-edit-model--collect '$id))))
 
 (defun json-schema-edit-model-index ()
   "Return the index plist of the current buffer, rebuilding it when stale."
@@ -423,36 +448,36 @@ missing or not listed there."
   (when-let* ((uri
                (json-schema-edit-model-get-string
                 (json-schema-edit-model-root)
-                "$schema")))
+                '$schema)))
     (cdr (assoc uri json-schema-edit-schema-versions))))
 
 (defun json-schema-edit-model-schema-p ()
   "Return non-nil if the current buffer looks like a JSON Schema."
   (when-let* ((root (json-schema-edit-model-root)))
     (or
-     (json-schema-edit-model-get root "$schema")
-     (json-schema-edit-model-get root "$defs")
-     (json-schema-edit-model-get root "definitions")
+     (json-schema-edit-model-get root '$schema)
+     (json-schema-edit-model-get root '$defs)
+     (json-schema-edit-model-get root 'definitions)
      (seq-some
       (lambda (keyword)
-        (json-schema-edit-model-get root (symbol-name keyword)))
+        (json-schema-edit-model-get root keyword))
       json-schema-edit-model--combinators))))
 
 (defun json-schema-edit-model-defs-keyword ()
-  "Return the keyword holding definitions in this schema.
+  "Return the keyword holding definitions in this schema, as a symbol.
 An existing `$defs' or `definitions' wins; otherwise it follows the
 schema version: `definitions' up to draft-07, `$defs' after."
   (let ((root (json-schema-edit-model-root)))
     (cond
-     ((json-schema-edit-model-get root "$defs")
-      "$defs")
-     ((json-schema-edit-model-get root "definitions")
-      "definitions")
+     ((json-schema-edit-model-get root '$defs)
+      '$defs)
+     ((json-schema-edit-model-get root 'definitions)
+      'definitions)
      ((memq
        (json-schema-edit-model-schema-version)
        '(draft-04 draft-06 draft-07))
-      "definitions")
-     (t "$defs"))))
+      'definitions)
+     (t '$defs))))
 
 (defun json-schema-edit-model-ref-siblings-ignored-p ()
   "Return non-nil if keywords next to `$ref' are ignored by this version."
@@ -584,7 +609,7 @@ Remote references (http etc.) are not resolved."
   (or
    (json-schema-edit-model-get-string
     (json-schema-edit-model-root)
-    "title")
+    'title)
    (and buffer-file-name
         (file-name-base
          (string-remove-suffix ".schema"
@@ -593,7 +618,7 @@ Remote references (http etc.) are not resolved."
 
 (defun json-schema-edit-model-declared-types (node)
   "Return the types declared by `type' of the schema NODE, or nil."
-  (when-let* ((type (json-schema-edit-model-get node "type")))
+  (when-let* ((type (json-schema-edit-model-get node 'type)))
     (pcase (treesit-node-type type)
       ("string" (list (json-schema-edit-model-string-value type)))
       ("array"
@@ -603,10 +628,11 @@ Remote references (http etc.) are not resolved."
 
 (defun json-schema-edit-model-keyword-applies-p (keyword types)
   "Return non-nil if KEYWORD has an effect on a value of one of TYPES.
-Keywords not tied to a type always apply."
+KEYWORD is a symbol or a string.  Keywords not tied to a type always
+apply."
   (let ((applies
          (alist-get
-          (intern-soft keyword)
+          (json-schema-edit-model-keyword keyword)
           json-schema-edit-model--keyword-types)))
     (or
      (null applies)
@@ -617,10 +643,10 @@ Keywords not tied to a type always apply."
 (defun json-schema-edit-model-type-string (node)
   "Return a short type description of the schema NODE, or nil."
   (when (equal (treesit-node-type node) "object")
-    (let ((type (json-schema-edit-model-get node "type")))
+    (let ((type (json-schema-edit-model-get node 'type)))
       (cond
        ((null type)
-        (when-let* ((ref (json-schema-edit-model-get-string node "$ref")))
+        (when-let* ((ref (json-schema-edit-model-get-string node '$ref)))
           (concat "→ " ref)))
        ((equal (treesit-node-type type) "string")
         (json-schema-edit-model-string-value type))
@@ -635,8 +661,8 @@ Keywords not tied to a type always apply."
     (let ((type (json-schema-edit-model-type-string node))
           (desc
            (or
-            (json-schema-edit-model-get-string node "title")
-            (json-schema-edit-model-get-string node "description"))))
+            (json-schema-edit-model-get-string node 'title)
+            (json-schema-edit-model-get-string node 'description))))
       (string-join (delq nil (list type desc)) " — "))))
 
 (provide 'json-schema-edit-model)

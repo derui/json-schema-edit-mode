@@ -137,7 +137,7 @@ Set it to nil to keep point in the schema buffer."
 
 (defun json-schema-edit-outline--local-target (node)
   "Return the pointer the `$ref' of NODE points to in this buffer, or nil."
-  (when-let* ((ref (json-schema-edit-model-get-string node "$ref"))
+  (when-let* ((ref (json-schema-edit-model-get-string node '$ref))
               (res (json-schema-edit-model-resolve ref)))
     (unless (map-elt res :file)
       (map-elt res :pointer))))
@@ -179,9 +179,9 @@ REQUIRED marks a required property."
   "Describe the schema object NODE at POINTER; see `--describe'."
   (let ((comb (seq-find (lambda (k)
                           (json-schema-edit-outline--array-p (json-schema-edit-model-get node k)))
-                        '("oneOf" "anyOf")))
-        (own (or (json-schema-edit-model-get node "type")
-                 (json-schema-edit-model-get node "properties"))))
+                        '(oneOf anyOf)))
+        (own (or (json-schema-edit-model-get node 'type)
+                 (json-schema-edit-model-get node 'properties))))
     (cond
      ((and comb (not own))
       (if-let* ((i (json-schema-edit-outline--nullable-branch node comb)))
@@ -191,10 +191,10 @@ REQUIRED marks a required property."
                          (json-schema-edit-model-node-at-pointer ptr) ptr)))
             (list (concat (or type "any") "?") note children))
         (json-schema-edit-outline--describe-combinator node pointer comb)))
-     ((json-schema-edit-outline--array-p (json-schema-edit-model-get node "allOf"))
+     ((json-schema-edit-outline--array-p (json-schema-edit-model-get node 'allOf))
       (json-schema-edit-outline--describe-all-of node pointer))
-     ((and (json-schema-edit-model-get node "$ref") (not own))
-      (let ((ref (json-schema-edit-model-get-string node "$ref")))
+     ((and (json-schema-edit-model-get node '$ref) (not own))
+      (let ((ref (json-schema-edit-model-get-string node '$ref)))
         (list (concat "→ " (and ref (json-schema-edit-outline--ref-name ref))) nil nil)))
      (t
       (pcase-let ((`(,type ,note ,children)
@@ -210,7 +210,7 @@ REQUIRED marks a required property."
   "Return non-nil if NODE is exactly {\"type\": \"null\"}."
   (let ((pairs (json-schema-edit-model-object-pairs node)))
     (and (= (length pairs) 1)
-         (equal (json-schema-edit-model-get-string node "type") "null"))))
+         (equal (json-schema-edit-model-get-string node 'type) "null"))))
 
 (defun json-schema-edit-outline--nullable-branch (node comb)
   "Return the index of the non-null branch when COMB of NODE is a nullable."
@@ -239,15 +239,15 @@ XMIN and XMAX are the exclusive variants, written with ( and )."
   "Describe NODE at POINTER by its `type' and constraints."
   (let* ((declared (json-schema-edit-model-declared-types node))
          (types (or declared
-                    (and (json-schema-edit-model-get node "properties") '("object"))))
+                    (and (json-schema-edit-model-get node 'properties) '("object"))))
          (nullable (and (member "null" types) (cdr types)))
          (base (if nullable (remove "null" types) types))
          (array-p (equal base '("array")))
-         (items (and array-p (json-schema-edit-model-get node "items")))
-         (items-ptr (append pointer '("items")))
+         (items (and array-p (json-schema-edit-model-get node 'items)))
+         (items-ptr (append pointer '(items)))
          (items-desc (and items (json-schema-edit-outline--describe items items-ptr)))
-         (const (json-schema-edit-model-get node "const"))
-         (enum (json-schema-edit-model-get node "enum"))
+         (const (json-schema-edit-model-get node 'const))
+         (enum (json-schema-edit-model-get node 'enum))
          (type
           (cond
            (items (concat (or (car items-desc) "any") "[]"))
@@ -257,20 +257,20 @@ XMIN and XMAX are the exclusive variants, written with ( and )."
          (extras
           (delq nil
                 (list
-                 (when-let* ((f (json-schema-edit-model-get-string node "format")))
+                 (when-let* ((f (json-schema-edit-model-get-string node 'format)))
                    (format "(%s)" f))
                  (cond
                   ((member "string" base)
-                   (json-schema-edit-outline--range node "minLength" "maxLength"))
+                   (json-schema-edit-outline--range node 'minLength 'maxLength))
                   ((or (member "number" base) (member "integer" base))
-                   (json-schema-edit-outline--range node "minimum" "maximum"
-                                                    "exclusiveMinimum" "exclusiveMaximum"))
+                   (json-schema-edit-outline--range node 'minimum 'maximum
+                                                    'exclusiveMinimum 'exclusiveMaximum))
                   ((member "array" base)
-                   (json-schema-edit-outline--range node "minItems" "maxItems"))
+                   (json-schema-edit-outline--range node 'minItems 'maxItems))
                   ((member "object" base)
-                   (json-schema-edit-outline--range node "minProperties" "maxProperties")))
-                 (json-schema-edit-model-get-string node "pattern")
-                 (when (equal (treesit-node-type (json-schema-edit-model-get node "uniqueItems"))
+                   (json-schema-edit-outline--range node 'minProperties 'maxProperties)))
+                 (json-schema-edit-model-get-string node 'pattern)
+                 (when (equal (treesit-node-type (json-schema-edit-model-get node 'uniqueItems))
                               "true")
                    "unique")
                  (when (and enum base)
@@ -287,34 +287,34 @@ XMIN and XMAX are the exclusive variants, written with ( and )."
              (seq-map-indexed
               (lambda (n i)
                 (json-schema-edit-outline--build
-                 n (append pointer (list "prefixItems" i)) (format "[%d]" i) 'items))
+                 n (append pointer (list 'prefixItems i)) (format "[%d]" i) 'items))
               (json-schema-edit-model--value-children
-               (json-schema-edit-model-get node "prefixItems"))))))))
+               (json-schema-edit-model-get node 'prefixItems))))))))
 
 (defun json-schema-edit-outline--property-entries (node pointer)
   "Return entries for the properties of the object schema NODE at POINTER."
-  (let ((required (json-schema-edit-edit--names (json-schema-edit-model-get node "required")))
-        (additional (json-schema-edit-model-get node "additionalProperties")))
+  (let ((required (json-schema-edit-edit--names (json-schema-edit-model-get node 'required)))
+        (additional (json-schema-edit-model-get node 'additionalProperties)))
     (append
      (mapcar (lambda (pair)
                (let ((name (json-schema-edit-model-pair-key pair)))
                  (json-schema-edit-outline--build
                   (json-schema-edit-model-pair-value pair)
-                  (append pointer (list "properties" name))
+                  (append pointer (list 'properties name))
                   name 'property (member name required))))
              (json-schema-edit-model-object-pairs
-              (json-schema-edit-model-get node "properties")))
+              (json-schema-edit-model-get node 'properties)))
      (mapcar (lambda (pair)
                (let ((re (json-schema-edit-model-pair-key pair)))
                  (json-schema-edit-outline--build
                   (json-schema-edit-model-pair-value pair)
-                  (append pointer (list "patternProperties" re))
+                  (append pointer (list 'patternProperties re))
                   (format "/%s/" re) 'pattern)))
              (json-schema-edit-model-object-pairs
-              (json-schema-edit-model-get node "patternProperties")))
+              (json-schema-edit-model-get node 'patternProperties)))
      (when (equal (treesit-node-type additional) "object")
        (list (json-schema-edit-outline--build
-              additional (append pointer '("additionalProperties")) "{*}" 'additional))))))
+              additional (append pointer '(additionalProperties)) "{*}" 'additional))))))
 
 ;;;; Combinators
 
@@ -330,31 +330,32 @@ TARGET is the branch itself, or the local definition its `$ref' points to."
 
 (defun json-schema-edit-outline--branch-name (branch index)
   "Return the name of BRANCH at INDEX: title, `$ref' name or number."
-  (or (json-schema-edit-model-get-string branch "title")
-      (when-let* ((ref (json-schema-edit-model-get-string branch "$ref")))
+  (or (json-schema-edit-model-get-string branch 'title)
+      (when-let* ((ref (json-schema-edit-model-get-string branch '$ref)))
         (json-schema-edit-outline--ref-name ref))
       (format "#%d" (1+ index))))
 
 (defun json-schema-edit-outline--simple-p (branch)
   "Return non-nil if BRANCH only names a type or a `$ref'."
   (and (equal (treesit-node-type branch) "object")
-       (seq-every-p (lambda (p) (member (json-schema-edit-model-pair-key p)
-                                        '("type" "$ref" "title" "description")))
+       (seq-every-p (lambda (p) (memq (json-schema-edit-model-keyword
+                                       (json-schema-edit-model-pair-key p))
+                                      '(type $ref title description)))
                     (json-schema-edit-model-object-pairs branch))
-       (or (json-schema-edit-model-get-string branch "type")
-           (json-schema-edit-model-get-string branch "$ref"))))
+       (or (json-schema-edit-model-get-string branch 'type)
+           (json-schema-edit-model-get-string branch '$ref))))
 
 (defun json-schema-edit-outline--discriminator (node branches)
   "Return the discriminating property of BRANCHES of NODE, or nil.
 It is the property every branch fixes with a distinct `const', or the
 OpenAPI `discriminator.propertyName'."
   (let ((declared (json-schema-edit-model-get-string
-                   (json-schema-edit-model-get node "discriminator") "propertyName"))
+                   (json-schema-edit-model-get node 'discriminator) 'propertyName))
         (const-of (lambda (target prop)
                     (json-schema-edit-model-get
                      (json-schema-edit-model-get
-                      (json-schema-edit-model-get target "properties") prop)
-                     "const"))))
+                      (json-schema-edit-model-get target 'properties) prop)
+                     'const))))
     (or declared
         (when-let* ((first (nth 3 (car branches))))
           (seq-find
@@ -366,12 +367,13 @@ OpenAPI `discriminator.propertyName'."
                     (= (length (seq-uniq values)) (length values)))))
            (mapcar #'json-schema-edit-model-pair-key
                    (json-schema-edit-model-object-pairs
-                    (json-schema-edit-model-get first "properties"))))))))
+                    (json-schema-edit-model-get first 'properties))))))))
 
 (defun json-schema-edit-outline-branches (node pointer comb)
   "Return the branches of COMB in the schema NODE at POINTER.
-Each is (POINTER NODE TARGET-POINTER TARGET), where TARGET is the
-branch, or the local definition its `$ref' points to."
+COMB is a keyword symbol such as `oneOf'.  Each is (POINTER NODE
+TARGET-POINTER TARGET), where TARGET is the branch, or the local
+definition its `$ref' points to."
   (json-schema-edit-outline--branches node comb pointer))
 
 (defun json-schema-edit-outline-discriminator (node pointer comb)
@@ -384,20 +386,20 @@ branch, or the local definition its `$ref' points to."
   (let* ((branches (json-schema-edit-outline--branches node comb pointer))
          (nodes (mapcar #'cadr branches)))
     (cond
-     ((seq-every-p (lambda (b) (json-schema-edit-model-get b "const")) nodes)
+     ((seq-every-p (lambda (b) (json-schema-edit-model-get b 'const)) nodes)
       (list (truncate-string-to-width
              (mapconcat (lambda (b) (json-schema-edit-outline--text
-                                     (json-schema-edit-model-get b "const")))
+                                     (json-schema-edit-model-get b 'const)))
                         nodes " | ")
              json-schema-edit-outline-max-type-width nil nil "…")
-            comb
+            (symbol-name comb)
             (mapcar (lambda (b)
                       (json-schema-edit-outline--entry
                        :label (json-schema-edit-outline--text
-                               (json-schema-edit-model-get (cadr b) "const"))
+                               (json-schema-edit-model-get (cadr b) 'const))
                        :kind 'const :pointer (car b)
                        :pos (json-schema-edit-outline--pos (car b))
-                       :note (json-schema-edit-model-get-string (cadr b) "title")
+                       :note (json-schema-edit-model-get-string (cadr b) 'title)
                        :inherited json-schema-edit-outline--inherited))
                     branches)))
      ((when-let* ((prop (json-schema-edit-outline--discriminator node branches)))
@@ -405,8 +407,8 @@ branch, or the local definition its `$ref' points to."
               (mapcar (lambda (b)
                         (let ((c (json-schema-edit-model-get
                                   (json-schema-edit-model-get
-                                   (json-schema-edit-model-get (nth 3 b) "properties") prop)
-                                  "const")))
+                                   (json-schema-edit-model-get (nth 3 b) 'properties) prop)
+                                  'const)))
                           (json-schema-edit-outline--build
                            (nth 3 b) (nth 2 b)
                            (concat "◇ " (if c
@@ -418,13 +420,13 @@ branch, or the local definition its `$ref' points to."
                       branches))))
      ((seq-every-p #'json-schema-edit-outline--simple-p nodes)
       (list (mapconcat (lambda (b)
-                         (or (json-schema-edit-model-get-string b "type")
+                         (or (json-schema-edit-model-get-string b 'type)
                              (json-schema-edit-outline--ref-name
-                              (json-schema-edit-model-get-string b "$ref"))))
+                              (json-schema-edit-model-get-string b '$ref))))
                        nodes " | ")
-            comb nil))
+            (symbol-name comb) nil))
      (t
-      (list comb nil
+      (list (symbol-name comb) nil
             (seq-map-indexed
              (lambda (b i)
                (json-schema-edit-outline--build
@@ -438,9 +440,9 @@ branch, or the local definition its `$ref' points to."
   (pcase-let ((`(,type ,note ,children)
                (json-schema-edit-outline--describe-combinator node pointer comb)))
     (json-schema-edit-outline--entry
-     :label comb :kind 'branch :pointer pointer
+     :label (symbol-name comb) :kind 'branch :pointer pointer
      :pos (json-schema-edit-outline--pos (append pointer (list comb)))
-     :type (unless (equal type comb) type) :note note
+     :type (unless (equal type (symbol-name comb)) type) :note note
      :inherited json-schema-edit-outline--inherited
      :children children)))
 
@@ -448,7 +450,7 @@ branch, or the local definition its `$ref' points to."
   "Describe NODE at POINTER that has allOf.
 Branches that `$ref' a local definition are shown as `extends', the
 others contribute their properties to NODE."
-  (let* ((branches (json-schema-edit-outline--branches node "allOf" pointer))
+  (let* ((branches (json-schema-edit-outline--branches node 'allOf pointer))
          (bases (seq-filter (lambda (b) (not (equal (car b) (nth 2 b)))) branches)))
     (if (null bases)
         (pcase-let ((`(,type ,note ,children)
@@ -456,7 +458,7 @@ others contribute their properties to NODE."
           (list (or type "allOf") note
                 (append children
                         (list (json-schema-edit-outline--combinator-entry
-                               node pointer "allOf")))))
+                               node pointer 'allOf)))))
       (let ((own (append (json-schema-edit-outline--property-entries node pointer)
                          (mapcan (lambda (b)
                                    (unless (memq b bases)
@@ -466,7 +468,7 @@ others contribute their properties to NODE."
             extends inherited)
         (dolist (b bases)
           (let* ((name (json-schema-edit-outline--ref-name
-                        (json-schema-edit-model-get-string (cadr b) "$ref")))
+                        (json-schema-edit-model-get-string (cadr b) '$ref)))
                  (children
                   (unless (member (nth 2 b) json-schema-edit-outline--visiting)
                     (let ((json-schema-edit-outline--visiting
@@ -501,7 +503,7 @@ They are the root schema and one section per definitions keyword."
             (lambda (kw)
               (when-let* ((defs (json-schema-edit-model-get root kw)))
                 (json-schema-edit-outline--entry
-                 :label kw :kind 'section :pointer (list kw)
+                 :label (symbol-name kw) :kind 'section :pointer (list kw)
                  :pos (json-schema-edit-outline--pos (list kw))
                  :children
                  (mapcar (lambda (pair)
@@ -510,7 +512,7 @@ They are the root schema and one section per definitions keyword."
                               (json-schema-edit-model-pair-value pair)
                               (list kw name) name 'definition)))
                          (json-schema-edit-model-object-pairs defs)))))
-            '("$defs" "definitions"))))))
+            '($defs definitions))))))
 
 (defun json-schema-edit-outline-imenu-index ()
   "Return an imenu index built from the outline entries."
@@ -794,10 +796,10 @@ When FN returns a pointer, point moves to its line."
 (defun json-schema-edit-outline-wrap-combinator ()
   "Wrap the schema at point in oneOf / anyOf / allOf."
   (interactive)
-  (let ((keyword (completing-read "Wrap in: "
-                                  (mapcar #'symbol-name
-                                          json-schema-edit-model--combinators)
-                                  nil t nil nil "oneOf")))
+  (let ((keyword (intern (completing-read "Wrap in: "
+                                          (mapcar #'symbol-name
+                                                  json-schema-edit-model--combinators)
+                                          nil t nil nil "oneOf"))))
     (json-schema-edit-outline--edit
      (lambda (e)
        (json-schema-edit-wrap-combinator
@@ -874,7 +876,7 @@ When FN returns a pointer, point moves to its line."
        (let ((name (read-string "Property name: ")))
          (json-schema-edit-add-property owner name (json-schema-edit-edit--read-type)
                                         (y-or-n-p "Required? "))
-         (append owner (list "properties" name)))))))
+         (append owner (list 'properties name)))))))
 
 (defun json-schema-edit-outline-move-property-up ()
   "Move the property at point up among its siblings."

@@ -67,13 +67,18 @@ When nil, `json-ts-mode-indent-offset' is used if bound, else 2."
   "Prefix every line but the first of TEXT with INDENT spaces."
   (string-replace "\n" (concat "\n" (make-string indent ?\s)) text))
 
+(defun json-schema-edit-edit--key-literal (key)
+  "Return KEY, a keyword symbol or a string, as a JSON string literal."
+  (json-schema-edit-edit--literal (json-schema-edit-model-key-name key)))
+
 (defun json-schema-edit-edit--object-text (members)
   "Return a multi-line object holding MEMBERS, a list of (KEY . VALUE-TEXT).
-Nested lines are indented relative to the opening brace."
+KEY is a keyword symbol or a string.  Nested lines are indented
+relative to the opening brace."
   (let ((pad (make-string (json-schema-edit-edit--offset) ?\s)))
     (concat "{\n"
             (mapconcat (lambda (m)
-                         (concat pad (json-schema-edit-edit--literal (car m)) ": "
+                         (concat pad (json-schema-edit-edit--key-literal (car m)) ": "
                                  (json-schema-edit-edit--indent-text
                                   (cdr m) (json-schema-edit-edit--offset))))
                        members ",\n")
@@ -115,7 +120,7 @@ It is written on one line when short and single-line, else like
 `json-schema-edit-edit--object-text'."
   (let ((inline (concat "{ "
                         (mapconcat (lambda (m)
-                                     (concat (json-schema-edit-edit--literal (car m))
+                                     (concat (json-schema-edit-edit--key-literal (car m))
                                              ": " (cdr m)))
                                    members ", ")
                         " }")))
@@ -176,10 +181,11 @@ It is written on one line when short and single-line, else like
 
 (defun json-schema-edit-edit-add-member (object key value-text)
   "Add KEY with VALUE-TEXT at the end of the OBJECT node.
-Return the position of the new key."
+KEY is a keyword symbol or a string.  Return the position of the new
+key."
   (json-schema-edit-edit--append
    object (json-schema-edit-model-object-pairs object)
-   (concat (json-schema-edit-edit--literal key) ": " value-text)))
+   (concat (json-schema-edit-edit--key-literal key) ": " value-text)))
 
 (defun json-schema-edit-edit-append-element (array value-text)
   "Append VALUE-TEXT at the end of the ARRAY node."
@@ -201,8 +207,9 @@ Return the position of the new key."
                      (treesit-node-end node))))))
 
 (defun json-schema-edit-edit-remove-member (object key)
-  "Remove KEY from the OBJECT node, if present."
-  (let ((pairs (json-schema-edit-model-object-pairs object)))
+  "Remove KEY, a keyword symbol or a string, from the OBJECT node, if present."
+  (let ((pairs (json-schema-edit-model-object-pairs object))
+        (key (json-schema-edit-model-key-name key)))
     (when-let* ((pair (seq-find (lambda (p) (equal (json-schema-edit-model-pair-key p) key))
                                 pairs)))
       (json-schema-edit-edit--remove pair pairs))))
@@ -212,7 +219,8 @@ Return the position of the new key."
   (json-schema-edit-edit--remove element (json-schema-edit-model--value-children array)))
 
 (defun json-schema-edit-edit-set-member (object key value-text)
-  "Set KEY of the OBJECT node to VALUE-TEXT, adding it when missing."
+  "Set KEY of the OBJECT node to VALUE-TEXT, adding it when missing.
+KEY is a keyword symbol or a string."
   (if-let* ((value (json-schema-edit-model-get object key)))
       (save-excursion
         (goto-char (treesit-node-start value))
@@ -252,14 +260,15 @@ The pointer ends with \"properties\" and the property name."
   (let ((segments (json-schema-edit-model-schema-pointer-at pos)))
     (while (and segments
                 (not (and (>= (length segments) 2)
-                          (equal (car (last segments 2)) "properties"))))
+                          (eq (json-schema-edit-model-keyword (car (last segments 2)))
+                              'properties))))
       (setq segments (butlast segments)))
     segments))
 
 (defun json-schema-edit-edit--object-schema-p (node)
   "Return non-nil if NODE is a schema that describes objects."
-  (or (json-schema-edit-model-get node "properties")
-      (let ((type (json-schema-edit-model-get node "type")))
+  (or (json-schema-edit-model-get node 'properties)
+      (let ((type (json-schema-edit-model-get node 'type)))
         (and type
              (if (equal (treesit-node-type type) "array")
                  (seq-some (lambda (n) (equal (json-schema-edit-model-string-value n) "object"))
@@ -288,9 +297,9 @@ owner of the property at POS."
   "Return the schema text for TYPE.
 A TYPE that looks like a reference becomes a `$ref'."
   (let ((pair (if (or (string-prefix-p "#" type) (string-search ".json" type))
-                  (cons "$ref" type)
-                (cons "type" type))))
-    (concat "{ " (json-schema-edit-edit--literal (car pair)) ": "
+                  (cons '$ref type)
+                (cons 'type type))))
+    (concat "{ " (json-schema-edit-edit--key-literal (car pair)) ": "
             (json-schema-edit-edit--literal (cdr pair))
             (when (equal (cdr pair) "object") ", \"properties\": {}")
             " }")))
@@ -313,7 +322,7 @@ one holding the property at point)."
      (list owner name (json-schema-edit-edit--read-type) (y-or-n-p "Required? "))))
   (when (string-empty-p name)
     (user-error "Empty property name"))
-  (let ((props (json-schema-edit-model-node-at-pointer (append owner '("properties")))))
+  (let ((props (json-schema-edit-model-node-at-pointer (append owner '(properties)))))
     (when (json-schema-edit-model-get props name)
       (user-error "Property %s already exists" name))
     (json-schema-edit-edit--with-undo
@@ -321,18 +330,18 @@ one holding the property at point)."
         (if (equal (treesit-node-type props) "object")
             (json-schema-edit-edit-add-member props name value)
           (json-schema-edit-edit-add-member
-           (json-schema-edit-model-node-at-pointer owner) "properties"
+           (json-schema-edit-model-node-at-pointer owner) 'properties
            (json-schema-edit-edit--object-text (list (cons name value))))))
       (when required
         (json-schema-edit-edit--add-required owner name)))
     (when-let* ((node (json-schema-edit-model-node-at-pointer
-                       (append owner (list "properties" name)))))
+                       (append owner (list 'properties name)))))
       (goto-char (treesit-node-start (treesit-node-parent node))))))
 
 (defun json-schema-edit-edit--add-required (owner name)
   "Add NAME to `required' of the object schema at OWNER."
   (let* ((node (json-schema-edit-model-node-at-pointer owner))
-         (required (json-schema-edit-model-get node "required")))
+         (required (json-schema-edit-model-get node 'required)))
     (cond
      ((member name (json-schema-edit-edit--names required)))
      ((and required (equal (treesit-node-type required) "array"))
@@ -340,13 +349,13 @@ one holding the property at point)."
        required (json-schema-edit-edit--literal name)))
      (t
       (json-schema-edit-edit-add-member
-       node "required" (concat "[" (json-schema-edit-edit--literal name) "]"))))))
+       node 'required (concat "[" (json-schema-edit-edit--literal name) "]"))))))
 
 (defun json-schema-edit-edit-required-p (pointer)
   "Return non-nil if the property at POINTER is listed in `required'."
   (let ((owner (json-schema-edit-model-node-at-pointer (butlast pointer 2))))
     (member (car (last pointer))
-            (json-schema-edit-edit--names (json-schema-edit-model-get owner "required")))))
+            (json-schema-edit-edit--names (json-schema-edit-model-get owner 'required)))))
 
 (defun json-schema-edit-toggle-required (pointer)
   "Toggle whether the property at POINTER is listed in `required'.
@@ -361,11 +370,11 @@ POINTER ends with \"properties\" and the property name.  An empty
       (if (not (json-schema-edit-edit-required-p pointer))
           (json-schema-edit-edit--add-required owner-ptr name)
         (let* ((owner (json-schema-edit-model-node-at-pointer owner-ptr))
-               (required (json-schema-edit-model-get owner "required"))
+               (required (json-schema-edit-model-get owner 'required))
                (elements (json-schema-edit-model--value-children required)))
           (if (seq-every-p (lambda (n) (equal (json-schema-edit-model-string-value n) name))
                            elements)
-              (json-schema-edit-edit-remove-member owner "required")
+              (json-schema-edit-edit-remove-member owner 'required)
             (json-schema-edit-edit-remove-element
              required
              (seq-find (lambda (n) (equal (json-schema-edit-model-string-value n) name))
@@ -396,9 +405,9 @@ Keywords that no longer apply are listed and removed on confirmation."
       (json-schema-edit-edit--with-undo
         (json-schema-edit-edit-set-member
          (json-schema-edit-model-node-at-pointer pointer)
-         (if ref-p "$ref" "type") (json-schema-edit-edit--literal type))
+         (if ref-p '$ref 'type) (json-schema-edit-edit--literal type))
         (json-schema-edit-edit-remove-member
-         (json-schema-edit-model-node-at-pointer pointer) (if ref-p "type" "$ref"))
+         (json-schema-edit-model-node-at-pointer pointer) (if ref-p 'type '$ref))
         (when drop
           (dolist (k stale)
             (json-schema-edit-edit-remove-member
@@ -422,15 +431,15 @@ covered."
                     (push (json-schema-edit-edit--node-replacement
                            (treesit-node-child-by-field-name pair "key") new-lit)
                           result)))))
-      (key-of (json-schema-edit-model-get owner "properties"))
-      (names-in (json-schema-edit-model-get owner "required"))
-      (dolist (kw '("dependentRequired" "dependencies"))
+      (key-of (json-schema-edit-model-get owner 'properties))
+      (names-in (json-schema-edit-model-get owner 'required))
+      (dolist (kw '(dependentRequired dependencies))
         (let ((deps (json-schema-edit-model-get owner kw)))
           (key-of deps)
           (dolist (pair (json-schema-edit-model-object-pairs deps))
             (names-in (json-schema-edit-model-pair-value pair)))))
       ;; The values of `dependentSchemas' are schemas, not name arrays.
-      (key-of (json-schema-edit-model-get owner "dependentSchemas")))
+      (key-of (json-schema-edit-model-get owner 'dependentSchemas)))
     result))
 
 (defun json-schema-edit-rename-property (pointer new)
@@ -448,7 +457,7 @@ POINTER ends with \"properties\" and the current name."
     (cond
      ((equal old new))
      ((string-empty-p new) (user-error "Empty property name"))
-     ((json-schema-edit-model-get (json-schema-edit-model-get owner "properties") new)
+     ((json-schema-edit-model-get (json-schema-edit-model-get owner 'properties) new)
       (user-error "Property %s already exists" new))
      (t
       (json-schema-edit-edit--with-undo
@@ -461,15 +470,15 @@ Covers `required', `dependentRequired', `dependencies' and
 `dependentSchemas'.  The owner is re-read after every edit, since an
 edit invalidates the tree nodes."
   (cl-flet ((owner () (json-schema-edit-model-node-at-pointer owner-ptr)))
-    (let ((required (json-schema-edit-model-get (owner) "required")))
+    (let ((required (json-schema-edit-model-get (owner) 'required)))
       (when (member name (json-schema-edit-edit--names required))
         (if (equal (json-schema-edit-edit--names required) (list name))
-            (json-schema-edit-edit-remove-member (owner) "required")
+            (json-schema-edit-edit-remove-member (owner) 'required)
           (json-schema-edit-edit-remove-element
            required
            (seq-find (lambda (n) (equal (json-schema-edit-model-string-value n) name))
                      (json-schema-edit-model--value-children required))))))
-    (dolist (kw '("dependentRequired" "dependencies" "dependentSchemas"))
+    (dolist (kw '(dependentRequired dependencies dependentSchemas))
       ;; Remove NAME from the name arrays of KW.  One edit per
       ;; iteration, so the tree is re-read after every change.
       (cl-loop for pair = (seq-find
@@ -514,7 +523,7 @@ first."
     (json-schema-edit-edit--with-undo
       (json-schema-edit-edit-remove-member
        (json-schema-edit-model-get
-        (json-schema-edit-model-node-at-pointer owner-ptr) "properties")
+        (json-schema-edit-model-node-at-pointer owner-ptr) 'properties)
        name)
       (json-schema-edit-edit--remove-name-references owner-ptr name))))
 
@@ -523,10 +532,10 @@ first."
 POINTER ends with \"properties\" and the property name; only the
 properties of an object can be reordered.  Return POINTER."
   (unless (and (>= (length pointer) 2)
-               (equal (car (last pointer 2)) "properties"))
+               (eq (json-schema-edit-model-keyword (car (last pointer 2))) 'properties))
     (user-error "Only the properties of an object can be moved"))
   (let* ((props (json-schema-edit-model-node-at-pointer
-                 (append (butlast pointer 2) '("properties"))))
+                 (append (butlast pointer 2) '(properties))))
          (pairs (json-schema-edit-model-object-pairs props))
          (name (car (last pointer)))
          (pair (seq-find (lambda (p) (equal (json-schema-edit-model-pair-key p) name))
@@ -562,16 +571,18 @@ POINTER ends with \"properties\" and the property name."
 
 (defun json-schema-edit-edit--definition-pointer (&optional pos)
   "Return (KEYWORD NAME) of the definition at POS, or nil.
-On a local `$ref' the definition it points to is used."
+KEYWORD is a symbol.  On a local `$ref' the definition it points to is
+used."
   (let ((segments (or (when-let* ((ref (json-schema-edit-model-ref-at pos))
                                   (res (json-schema-edit-model-resolve
                                         (json-schema-edit-model-ref-value ref))))
                         (unless (map-elt res :file)
                           (map-elt res :pointer)))
                       (json-schema-edit-model-pointer-at pos))))
-    (when (and (>= (length segments) 2)
-               (member (car segments) '("$defs" "definitions")))
-      (list (nth 0 segments) (nth 1 segments)))))
+    (when-let* (((>= (length segments) 2))
+                (keyword (car (memq (json-schema-edit-model-keyword (car segments))
+                                    '($defs definitions)))))
+      (list keyword (nth 1 segments)))))
 
 (defun json-schema-edit-edit--same-file-p (a b)
   "Return non-nil if the file names A and B (possibly nil) are the same."
@@ -581,7 +592,8 @@ On a local `$ref' the definition it points to is used."
   "Return VALUE rewritten from PREFIX to NEW-PREFIX, or nil.
 VALUE is a `$ref' string; it is rewritten when it resolves into PREFIX
 of FILE (nil meaning the current buffer) through a JSON Pointer."
-  (pcase-let ((`(,resource . ,fragment) (json-schema-edit-model-split-ref value)))
+  (pcase-let ((`(,resource . ,fragment) (json-schema-edit-model-split-ref value))
+              (prefix (json-schema-edit-model-normalize-segments prefix)))
     (when (and fragment (string-prefix-p "/" fragment))
       (let ((segments (json-schema-edit-model-pointer-decode fragment))
             (res (json-schema-edit-model-resolve value)))
@@ -631,6 +643,7 @@ of FILE (nil meaning the current buffer) through a JSON Pointer."
 
 (defun json-schema-edit-rename-definition (definition new)
   "Rename DEFINITION, a list (KEYWORD NAME), to NEW.
+KEYWORD is a symbol or a string.
 Every `$ref' to it in this buffer is rewritten.  When other schema
 files refer to it, you are asked whether to update them as well; they
 are visited and modified but not saved."

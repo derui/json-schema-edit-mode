@@ -93,7 +93,7 @@ fragment of the schema at point."
 (defun json-schema-edit-xref--definition-names ()
   "Return fragments of the definitions and anchors in the current buffer."
   (let ((root (json-schema-edit-model-root)) names)
-    (dolist (key '("$defs" "definitions"))
+    (dolist (key '($defs definitions))
       (dolist (pair (json-schema-edit-model-object-pairs
                      (json-schema-edit-model-get root key)))
         (push (json-schema-edit-model-pointer-fragment

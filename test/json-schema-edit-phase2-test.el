@@ -317,9 +317,9 @@
 (ert-deftest json-schema-edit-phase2-test-rename-definition ()
   (json-schema-edit-phase2-test--with-copy "user.schema.json"
     (json-schema-edit-phase2-test--goto "#/$defs/Address")
-    (should (equal (json-schema-edit-edit--definition-pointer) '("$defs" "Address")))
+    (should (equal (json-schema-edit-edit--definition-pointer) '($defs "Address")))
     (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _) t)))
-      (json-schema-edit-rename-definition '("$defs" "Address") "PostalAddress"))
+      (json-schema-edit-rename-definition '($defs "Address") "PostalAddress"))
     (let-alist (json-schema-edit-phase2-test--parse)
       (should .$defs.PostalAddress)
       (should-not .$defs.Address)
@@ -340,7 +340,7 @@
       "{\"$defs\": {\"a/b\": {\"properties\": {\"x\": {}}}},
         \"properties\": {\"p\": {\"$ref\": \"#/$defs/a~1b/properties/x\"},
                          \"q\": {\"$ref\": \"#/$defs/a~1bc\"}}}"
-    (json-schema-edit-rename-definition '("$defs" "a/b") "c~d")
+    (json-schema-edit-rename-definition '($defs "a/b") "c~d")
     (let-alist (json-schema-edit-phase2-test--parse)
       (should (equal .properties.p '(($ref . "#/$defs/c~0d/properties/x"))))
       (should (equal .properties.q '(($ref . "#/$defs/a~1bc")))))))
@@ -348,7 +348,7 @@
 (ert-deftest json-schema-edit-phase2-test-rename-definition-decline-others ()
   (json-schema-edit-phase2-test--with-copy "common.json"
     (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _) nil)))
-      (json-schema-edit-rename-definition '("$defs" "Timestamps") "Times"))
+      (json-schema-edit-rename-definition '($defs "Timestamps") "Times"))
     (let-alist (json-schema-edit-phase2-test--parse)
       (should (equal .$defs.Self '(($ref . "#/$defs/Times")))))
     (should-not (find-buffer-visiting (expand-file-name "other.json" default-directory)))))
