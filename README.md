@@ -260,6 +260,7 @@ of the wrong type are flagged with flymake.
 |----------|---------|---------|
 | `json-schema-edit-breadcrumb-style` | `instance` | `instance` (data path), `schema` (JSON Pointer) or `nil` |
 | `json-schema-edit-breadcrumb-separator` | `" › "` | Separator of the breadcrumb |
+| `json-schema-edit-schema-versions` | official meta-schema URIs | Alist from a full `$schema` URI to its version (`2020-12`, `2019-09`, `draft-07`, `draft-06`, `draft-04`) |
 | `json-schema-edit-reference-files-function` | JSON files in the same directory | Files searched by `M-?`, renames and the unused-definition check |
 | `json-schema-edit-lint-unused-definitions` | `directory` | Count references from other files (`directory`), this file only (`file`), or disable (`nil`) |
 | `json-schema-edit-indent-offset` | `nil` | Indentation of inserted text; `nil` uses `json-ts-mode-indent-offset` |

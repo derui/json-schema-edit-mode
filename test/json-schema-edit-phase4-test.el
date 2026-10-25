@@ -107,7 +107,7 @@
 
 (ert-deftest json-schema-edit-phase4-test-extract-draft-07 ()
   (json-schema-edit-phase4-test--with-json
-      "{\"$schema\": \"http://json-schema.org/draft-07/schema#\", \"items\": {\"type\": \"integer\"}}"
+      "{\"$schema\": \"https://json-schema.org/draft-07/schema#\", \"items\": {\"type\": \"integer\"}}"
     (json-schema-edit-extract-definition '("items") "Count")
     (let-alist (json-schema-edit-phase4-test--parse)
       (should (equal .items '(($ref . "#/definitions/Count"))))
@@ -278,7 +278,7 @@
 
 (ert-deftest json-schema-edit-phase4-test-constraint-draft-04 ()
   (json-schema-edit-phase4-test--with-constraints
-      "{\"$schema\": \"http://json-schema.org/draft-04/schema#\", \"type\": \"number\"}" nil
+      "{\"$schema\": \"https://json-schema.org/draft-04/schema#\", \"type\": \"number\"}" nil
     (json-schema-edit-constraint-set-range "(0..1)")
     (json-schema-edit-constraint-apply)
     (let-alist (json-schema-edit-phase4-test--parse)

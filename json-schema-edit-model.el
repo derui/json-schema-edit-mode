@@ -27,6 +27,32 @@
 
 (declare-function treesit-node-child-by-field-name "treesit.c")
 
+(defgroup json-schema-edit nil
+  "Editing support for JSON Schema."
+  :group 'languages
+  :prefix "json-schema-edit-")
+
+(defcustom json-schema-edit-schema-versions
+  '(("https://json-schema.org/draft/2020-12/schema" . 2020-12)
+    ("https://json-schema.org/draft/2019-09/schema" . 2019-09)
+    ("https://json-schema.org/draft-07/schema#" . draft-07)
+    ("https://json-schema.org/draft-07/schema" . draft-07)
+    ("https://json-schema.org/draft-06/schema#" . draft-06)
+    ("https://json-schema.org/draft-06/schema" . draft-06)
+    ("https://json-schema.org/draft-04/schema#" . draft-04)
+    ("https://json-schema.org/draft-04/schema" . draft-04))
+  "Alist mapping `$schema' URIs to schema versions.
+Each key is compared with the whole value of `$schema', so a URI must
+be listed exactly as it is written in the schema.  Each value is one of
+`2020-12', `2019-09', `draft-07', `draft-06' or `draft-04'."
+  :type '(alist :key-type (string :tag "URI")
+                :value-type (choice (const 2020-12)
+                                    (const 2019-09)
+                                    (const draft-07)
+                                    (const draft-06)
+                                    (const draft-04)))
+  :group 'json-schema-edit)
+
 (defconst json-schema-edit-model--keyword-types
   '((minLength . string)
     (maxLength . string)
@@ -389,25 +415,16 @@ The whole path is followed from the root, so that objects inside
 
 ;;;; Draft
 
-(defun json-schema-edit-model-draft ()
-  "Return the draft of the current schema as a symbol.
-One of `2020-12', `2019-09', `draft-07', `draft-06', `draft-04', or
-nil when `$schema' is missing or unknown."
+(defun json-schema-edit-model-schema-version ()
+  "Return the version of the current schema as a symbol.
+The whole `$schema' URI is looked up in
+`json-schema-edit-schema-versions'.  Return nil when `$schema' is
+missing or not listed there."
   (when-let* ((uri
                (json-schema-edit-model-get-string
                 (json-schema-edit-model-root)
                 "$schema")))
-    (cond
-     ((string-match-p "2020-12" uri)
-      '2020-12)
-     ((string-match-p "2019-09" uri)
-      '2019-09)
-     ((string-match-p "draft-07" uri)
-      'draft-07)
-     ((string-match-p "draft-06" uri)
-      'draft-06)
-     ((string-match-p "draft-04" uri)
-      'draft-04))))
+    (cdr (assoc uri json-schema-edit-schema-versions))))
 
 (defun json-schema-edit-model-schema-p ()
   "Return non-nil if the current buffer looks like a JSON Schema."
@@ -424,7 +441,7 @@ nil when `$schema' is missing or unknown."
 (defun json-schema-edit-model-defs-keyword ()
   "Return the keyword holding definitions in this schema.
 An existing `$defs' or `definitions' wins; otherwise it follows the
-draft: `definitions' up to draft-07, `$defs' after."
+schema version: `definitions' up to draft-07, `$defs' after."
   (let ((root (json-schema-edit-model-root)))
     (cond
      ((json-schema-edit-model-get root "$defs")
@@ -432,14 +449,15 @@ draft: `definitions' up to draft-07, `$defs' after."
      ((json-schema-edit-model-get root "definitions")
       "definitions")
      ((memq
-       (json-schema-edit-model-draft)
+       (json-schema-edit-model-schema-version)
        '(draft-04 draft-06 draft-07))
       "definitions")
      (t "$defs"))))
 
 (defun json-schema-edit-model-ref-siblings-ignored-p ()
-  "Return non-nil if keywords next to `$ref' are ignored by this draft."
-  (memq (json-schema-edit-model-draft) '(draft-04 draft-06 draft-07)))
+  "Return non-nil if keywords next to `$ref' are ignored by this version."
+  (memq (json-schema-edit-model-schema-version)
+        '(draft-04 draft-06 draft-07)))
 
 ;;;; Resolving $ref
 

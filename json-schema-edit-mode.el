@@ -259,7 +259,7 @@ See `context-menu-functions'."
 
 (defconst json-schema-edit--new-schema-versions
   '(("2020-12" . "https://json-schema.org/draft/2020-12/schema")
-    ("draft-07" . "http://json-schema.org/draft-07/schema#"))
+    ("draft-07" . "https://json-schema.org/draft-07/schema#"))
   "Schema versions `json-schema-edit-new' can start from.")
 
 ;;;###autoload

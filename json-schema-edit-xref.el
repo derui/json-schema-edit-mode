@@ -19,17 +19,13 @@
 (require 'map)
 (require 'json-schema-edit-model)
 
-(defgroup json-schema-edit nil
-  "Editing support for JSON Schema."
-  :group 'languages
-  :prefix "json-schema-edit-")
-
 (defcustom json-schema-edit-reference-files-function
   #'json-schema-edit-xref-sibling-files
   "Function returning the files searched for references by `M-?'.
 It is called in the schema buffer with no arguments and returns a list
 of absolute file names.  The current file is always searched as well."
-  :type 'function)
+  :type 'function
+  :group 'json-schema-edit)
 
 (defun json-schema-edit-xref-sibling-files ()
   "Return the JSON files in the directory of the current buffer."

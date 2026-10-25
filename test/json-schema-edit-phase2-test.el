@@ -131,7 +131,7 @@
 
 (ert-deftest json-schema-edit-phase2-test-new-schema ()
   (dolist (case '(("2020-12" . "https://json-schema.org/draft/2020-12/schema")
-                  ("draft-07" . "http://json-schema.org/draft-07/schema#")))
+                  ("draft-07" . "https://json-schema.org/draft-07/schema#")))
     (save-window-excursion
       (json-schema-edit-new (car case) "Person")
       (unwind-protect

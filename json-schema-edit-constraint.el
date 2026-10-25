@@ -171,7 +171,7 @@ all nil."
 (defun json-schema-edit-constraint--draft-04-p ()
   "Return non-nil if the schema being edited is draft-04."
   (json-schema-edit-constraint--in-buffer
-    (eq (json-schema-edit-model-draft) 'draft-04)))
+    (eq (json-schema-edit-model-schema-version) 'draft-04)))
 
 (defun json-schema-edit-constraint--range-text ()
   "Return the current range in the range notation, or nil."

@@ -81,11 +81,27 @@
       (should (equal (json-schema-edit-model-get-string node "$ref")
                      "#/$defs/Phone")))))
 
-(ert-deftest json-schema-edit-test-draft ()
+(ert-deftest json-schema-edit-test-schema-version ()
   (json-schema-edit-test--with-fixture "user.schema.json"
-    (should (eq (json-schema-edit-model-draft) '2020-12)))
+    (should (eq (json-schema-edit-model-schema-version) '2020-12)))
   (json-schema-edit-test--with-fixture "other.json"
-    (should (eq (json-schema-edit-model-draft) 'draft-07))))
+    (should (eq (json-schema-edit-model-schema-version) 'draft-07))))
+
+(ert-deftest json-schema-edit-test-schema-version-full-uri ()
+  (dolist (case '(("https://json-schema.org/draft/2020-12/schema" . 2020-12)
+                  ("https://json-schema.org/draft-04/schema#" . draft-04)
+                  ("https://example.com/draft-07/schema#" . nil)
+                  ("https://json-schema.org/draft/2020-12/schema/extra" . nil)))
+    (with-temp-buffer
+      (insert (format "{\"$schema\": \"%s\"}" (car case)))
+      (treesit-parser-create 'json)
+      (should (eq (json-schema-edit-model-schema-version) (cdr case)))))
+  (with-temp-buffer
+    (insert "{\"$schema\": \"https://example.com/my-schema\"}")
+    (treesit-parser-create 'json)
+    (let ((json-schema-edit-schema-versions
+           '(("https://example.com/my-schema" . draft-07))))
+      (should (eq (json-schema-edit-model-schema-version) 'draft-07)))))
 
 ;;;; Resolution
 
