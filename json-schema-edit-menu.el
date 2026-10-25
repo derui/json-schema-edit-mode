@@ -7,8 +7,8 @@
 
 ;;; Commentary:
 
-;; `json-schema-edit-dispatch' (C-c C-s) gathers every operation of the
-;; mode; `json-schema-edit-combinator-menu' (C-c C-s o) edits the
+;; `json-schema-edit-dispatch' (C-c ;) gathers every operation of the
+;; mode; `json-schema-edit-combinator-menu' (C-c ; o) edits the
 ;; branches of oneOf / anyOf / allOf at point.
 
 ;;; Code:
@@ -46,7 +46,7 @@
     ("s" "switch oneOf / anyOf / allOf" json-schema-edit-switch-combinator)
     ("d" "set discriminating property" json-schema-edit-set-discriminator)
     ("f" "factor out common properties" json-schema-edit-factor-common-properties)
-    ("?" "toggle nullable" json-schema-edit-toggle-nullable)]])
+    ("N" "toggle nullable" json-schema-edit-toggle-nullable)]])
 
 ;;;###autoload (autoload 'json-schema-edit-dispatch "json-schema-edit-menu" nil t)
 (transient-define-prefix json-schema-edit-dispatch ()
@@ -58,11 +58,12 @@
    ["Property"
     ("a" "add" json-schema-edit-add-property)
     ("r" "rename" json-schema-edit-rename-property)
+    ("k" "remove" json-schema-edit-remove-property)
     ("*" "toggle required" json-schema-edit-toggle-required)
     ("t" "change type" json-schema-edit-change-type)
     ("c" "constraints..." json-schema-edit-constraints)]]
   [["Transform"
-    ("?" "toggle nullable" json-schema-edit-toggle-nullable)
+    ("N" "toggle nullable" json-schema-edit-toggle-nullable)
     ("[" "make array of it" json-schema-edit-wrap-array)
     ("W" "wrap in oneOf / anyOf / allOf" json-schema-edit-wrap-combinator)
     ("o" "oneOf / anyOf / allOf..." json-schema-edit-combinator-menu)]

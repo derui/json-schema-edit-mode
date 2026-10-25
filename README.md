@@ -37,7 +37,7 @@ User                     object
 - **Breadcrumb**: the header line shows where in the data the schema at
   point applies, for example `User › contact › ‹oneOf: email› › address
   : string`. A required property ends with `*`. It can be switched
-  to the schema's JSON Pointer.
+  to the schema's JSON Pointer, or off.
 - **Outline**: a side buffer shows the data shape (see above). It folds
   with outline-minor-mode, and you can edit from it. Common uses of
   oneOf / anyOf / allOf are folded into short forms: nullable, unions,
@@ -45,10 +45,11 @@ User                     object
   and `extends`. The same tree feeds imenu.
 - **Safe edits**:
   - Adding a property updates `properties` and `required` together.
-  - Renaming a property also updates `required`, `dependentRequired`
-    and `dependencies`.
+  - Renaming a property also updates `required`, `dependentRequired`,
+    `dependencies` and `dependentSchemas`; removing a property cleans
+    them up too.
   - Renaming a definition rewrites every `$ref` to it, optionally in
-    other files too.
+    other files too, whose names are shown before and after.
 - **Constraints by type**: a menu lists the keywords that apply to the
   type at point, with their current values. Changes are written at once.
   - Ranges are typed as `1..100`, `..100` or `(0..100]`.
@@ -137,13 +138,17 @@ to see them:
 
 ### In the schema buffer
 
-| Key       | Command                     |
-|-----------|-----------------------------|
-| `M-.`     | Go to the `$ref` definition |
-| `M-?`     | List references to the definition or `$ref` at point |
-| `C-c C-s` | Menu of every operation (below) |
+| Key                 | Command                     |
+|---------------------|-----------------------------|
+| `M-.`               | Go to the `$ref` definition |
+| `M-?`               | List references to the definition or `$ref` at point |
+| `C-c ;`             | Menu of every operation (below) |
 
-The `C-c C-s` menu:
+`C-c ;` is a binding a minor mode may claim by convention (`C-c C-s`
+belongs to the major mode).  With `context-menu-mode` on, right-click
+offers the common operations too.
+
+The `C-c ;` menu:
 
 | Key | Operation                                          |
 |-----|----------------------------------------------------|
@@ -152,10 +157,11 @@ The `C-c C-s` menu:
 | `w` | Copy the JSON Pointer of the schema at point       |
 | `a` | Add a property                                     |
 | `r` | Rename the property at point                       |
+| `k` | Remove the property at point, after confirmation   |
 | `*` | Toggle required                                    |
 | `t` | Change type                                        |
 | `c` | Edit constraints…                                 |
-| `?` | Toggle nullable                                    |
+| `N` | Toggle nullable                                    |
 | `[` | Make an array of it                                |
 | `W` | Wrap in oneOf / anyOf / allOf                      |
 | `o` | oneOf / anyOf / allOf branches…                   |
@@ -163,7 +169,7 @@ The `C-c C-s` menu:
 | `i` | Inline `$ref`                                      |
 | `d` | Rename definition                                  |
 
-The branch menu (`C-c C-s o`) acts on the oneOf / anyOf / allOf at
+The branch menu (`C-c ; o`) acts on the oneOf / anyOf / allOf at
 point:
 
 | Key       | Operation                                                                               |
@@ -175,22 +181,32 @@ point:
 | `s`       | Switch between oneOf / anyOf / allOf, showing what changes                              |
 | `d`       | Set a discriminating property on every branch                                           |
 | `f`       | Factor out properties common to every branch                                            |
-| `?`       | Toggle nullable                                                                         |
+| `N`       | Toggle nullable                                                                         |
 
 ### Outline
+
+The outline keys mirror the `C-c ;` menu (`r` renames, `*` toggles
+required, `N` toggles nullable, in both):
 
 | Key             | Operation                                                             |
 |-----------------|-----------------------------------------------------------------------|
 | `RET` / `C-o`   | Jump to / show the schema in the source                               |
 | `TAB` / `S-TAB` | Fold                                                                  |
-| `r`             | Toggle required                                                       |
+| `*`             | Toggle required                                                       |
 | `t`             | Change type                                                           |
-| `R`             | Rename the property or definition                                     |
+| `r`             | Rename the property or definition                                     |
 | `a`             | Add a property next to the one at point (or into the object at point) |
+| `k`             | Remove the property, keeping `required` and friends in sync           |
 | `c`             | Edit constraints                                                      |
-| `?`             | Toggle nullable                                                       |
+| `N`             | Toggle nullable                                                       |
+| `[`             | Make an array of it                                                   |
+| `W`             | Wrap in oneOf / anyOf / allOf                                         |
+| `x`             | Extract to definitions                                                |
+| `i`             | Inline `$ref`                                                         |
+| `o`             | Branch menu for the oneOf / anyOf / allOf at point                    |
 | `m`             | Switch allOf between "as written" and "merged"                        |
 | `g`             | Refresh                                                               |
+| `?`             | Describe the mode (help)                                              |
 
 In the outline, `*` marks a required property and `→` marks a `$ref`.
 `↖ Base` marks a property inherited through allOf. Editing an inherited
@@ -207,7 +223,7 @@ The menu shows only the keywords that apply to the type at point:
 | number / integer | minimum / maximum (with exclusive) | `m` multipleOf                                                                         |
 | array            | minItems / maxItems                | `u` uniqueItems, `i` items type                                                        |
 | object           | minProperties / maxProperties      | `a` additionalProperties, `n` propertyNames                                            |
-| every type       | —                                 | `e` enum, `+` add an enum value, `c` const, `d` default, `D` description, `x` examples |
+| every type       | —                                 | `e` enum, `+` add an enum value, `c` const, `d` default, `t` title, `D` description, `x` examples |
 
 Ranges use the notation of the outline:
 
@@ -219,11 +235,14 @@ Ranges use the notation of the outline:
 | `(0..100]` | —                         | exclusiveMinimum 0, maximum 100 |
 | empty      | remove both                | remove both                     |
 
-Changes are kept pending until `RET` writes them as one undoable edit.
-`C-g` leaves the buffer untouched. Contradicting input, such as a lower
-bound above the upper one, a negative length, or a decimal bound on an
-integer, is rejected before anything is written. `!` lists keywords
-that do not apply to the type, and `X` removes them.
+Changes are kept pending until `RET` writes them as one undoable edit;
+the menu header counts them.  `v` lists the pending changes before they
+are written, and `Q` discards them and quits.  `C-g` also leaves the
+buffer untouched; pending changes are kept until the menu is opened for
+another schema, which says when it discards them.  Contradicting input,
+such as a lower bound above the upper one, a negative length, or a
+decimal bound on an integer, is rejected before anything is written.
+`!` lists keywords that do not apply to the type, and `X` removes them.
 
 `e` opens a buffer with one enum value per line. For strings, each line
 is the string itself, without quotes. `C-c C-c` returns to the menu
@@ -244,6 +263,7 @@ of the wrong type are flagged with flymake.
 | `json-schema-edit-property-types` | JSON types | Types offered when adding a property |
 | `json-schema-edit-constraint-formats` | standard formats | Values offered for `format` |
 | `json-schema-edit-outline-display-action` | right side window | How the outline buffer is shown |
+| `json-schema-edit-outline-select-window` | `t` | Whether `json-schema-edit-outline` moves point to the outline window |
 | `json-schema-edit-outline-refresh-delay` | `0.3` | Idle seconds before the outline redraws |
 | `json-schema-edit-outline-max-label-width` / `-max-type-width` | `40` / `36` | Column widths of the outline |
 

@@ -475,6 +475,46 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
   (interactive)
   (json-schema-edit-enum-edit))
 
+(transient-define-suffix json-schema-edit-constraint-title ()
+  "Set `title'."
+  :transient t
+  :description (lambda () (json-schema-edit-constraint--desc
+                           "title" "title" (json-schema-edit-constraint--string "title")))
+  (interactive)
+  (let ((input (read-string "title (empty to remove): "
+                            (json-schema-edit-constraint--string "title"))))
+    (json-schema-edit-constraint--set
+     "title" (unless (string-empty-p input) (json-schema-edit-edit--literal input)))))
+
+(transient-define-suffix json-schema-edit-constraint-view-pending ()
+  "Show the pending changes in a help window."
+  :transient t
+  :description (lambda ()
+                 (if json-schema-edit-constraint--pending
+                     (format "view %d pending change(s)"
+                             (length json-schema-edit-constraint--pending))
+                   (propertize "no pending change" 'face 'shadow)))
+  (interactive)
+  (if (null json-schema-edit-constraint--pending)
+      (message "No pending change")
+    (with-help-window "*JSchema Pending Changes*"
+      (with-current-buffer standard-output
+        (insert (format "Pending changes for %s (written by RET):\n\n"
+                        (json-schema-edit-model-pointer-fragment
+                         json-schema-edit-constraint--pointer)))
+        (dolist (change (reverse json-schema-edit-constraint--pending))
+          (insert (format "  %-22s %s\n" (car change)
+                          (if (cdr change)
+                              (truncate-string-to-width (cdr change) 60 nil nil "…")
+                            "(remove)"))))))))
+
+(transient-define-suffix json-schema-edit-constraint-discard ()
+  "Discard the pending changes and quit the menu."
+  :description "discard changes and quit"
+  (interactive)
+  (setq json-schema-edit-constraint--pending nil)
+  (transient-quit-all))
+
 (transient-define-suffix json-schema-edit-constraint-toggle-all ()
   "Toggle listing the keywords that do not apply to the type."
   :transient t
@@ -514,13 +554,19 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
   (let ((name (format "%s" (or (car (last json-schema-edit-constraint--pointer))
                                (json-schema-edit-constraint--in-buffer
                                  (json-schema-edit-model-root-name))))))
-    (format "%s  %s    %s"
+    (format "%s  %s    %s%s"
             (propertize name 'face 'bold)
             (propertize (string-join (or (json-schema-edit-constraint--types) '("any")) " | ")
                         'face 'font-lock-type-face)
             (propertize (json-schema-edit-model-pointer-fragment
                          json-schema-edit-constraint--pointer)
-                        'face 'shadow))))
+                        'face 'shadow)
+            (if json-schema-edit-constraint--pending
+                (format "    %s" (propertize
+                                  (format "%d pending, RET writes"
+                                          (length json-schema-edit-constraint--pending))
+                                  'face 'warning))
+              ""))))
 
 (transient-define-prefix json-schema-edit-constraints-menu ()
   "Edit the constraints of a schema by its type."
@@ -550,31 +596,44 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
     ("c" json-schema-edit-constraint-const)
     ("d" json-schema-edit-constraint-default)]
    ["Annotations"
+    ("t" json-schema-edit-constraint-title)
     ("D" json-schema-edit-constraint-description)
     ("x" json-schema-edit-constraint-examples)]]
   [["Inapplicable"
     :if (lambda () json-schema-edit-constraint--show-all)
     ("X" json-schema-edit-constraint-remove-inapplicable)]]
   [("RET" "write changes" json-schema-edit-constraint-apply)
+   ("v" json-schema-edit-constraint-view-pending)
+   ("Q" json-schema-edit-constraint-discard)
    ("!" json-schema-edit-constraint-toggle-all)])
 
 ;;;###autoload
 (defun json-schema-edit-constraints (&optional buffer pointer resume)
   "Edit the constraints of the schema at POINTER in BUFFER.
 Interactively, the schema at point.  When RESUME is non-nil the pending
-changes of the previous menu are kept."
+changes of the previous menu are kept.  Only one menu session exists
+at a time; opening it for another schema discards pending changes,
+after saying so."
   (interactive)
-  (setq json-schema-edit-constraint--buffer (or buffer (current-buffer))
-        json-schema-edit-constraint--pointer
-        (or pointer (with-current-buffer json-schema-edit-constraint--buffer
-                      (json-schema-edit-model-schema-pointer-at))))
-  (unless resume
-    (setq json-schema-edit-constraint--pending nil
-          json-schema-edit-constraint--show-all nil))
-  (with-current-buffer json-schema-edit-constraint--buffer
-    (unless (equal (treesit-node-type (json-schema-edit-constraint--node)) "object")
-      (user-error "No schema object at point")))
-  (transient-setup 'json-schema-edit-constraints-menu))
+  (let ((buffer (or buffer (current-buffer)))
+        (pointer (or pointer (json-schema-edit-model-schema-pointer-at))))
+    (when (and json-schema-edit-constraint--pending
+               (not resume)
+               (or (not (eq json-schema-edit-constraint--buffer buffer))
+                   (not (equal json-schema-edit-constraint--pointer pointer))))
+      (message "Discarded %d pending change(s) of %s"
+               (length json-schema-edit-constraint--pending)
+               (json-schema-edit-model-pointer-fragment
+                json-schema-edit-constraint--pointer)))
+    (setq json-schema-edit-constraint--buffer buffer
+          json-schema-edit-constraint--pointer pointer)
+    (unless resume
+      (setq json-schema-edit-constraint--pending nil
+            json-schema-edit-constraint--show-all nil))
+    (with-current-buffer buffer
+      (unless (equal (treesit-node-type (json-schema-edit-constraint--node)) "object")
+        (user-error "No schema object at point")))
+    (transient-setup 'json-schema-edit-constraints-menu)))
 
 ;;;; enum buffer
 
@@ -667,7 +726,10 @@ itself; otherwise it is a JSON value.
   "Open a buffer editing the enum of the schema in the constraint menu."
   (let* ((type (json-schema-edit-constraint--value-type))
          (elements (json-schema-edit-constraint--enum-elements))
-         (buf (get-buffer-create "*JSchema Enum*")))
+         (buf (get-buffer-create
+               (format "*JSchema Enum: %s*"
+                       (json-schema-edit-model-pointer-fragment
+                        json-schema-edit-constraint--pointer)))))
     (with-current-buffer buf
       (erase-buffer)
       (json-schema-edit-enum-mode)

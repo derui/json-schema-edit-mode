@@ -32,6 +32,11 @@
 (require 'json-schema-edit-constraint)
 
 (declare-function json-schema-edit-toggle-nullable "json-schema-edit-transform")
+(declare-function json-schema-edit-wrap-array "json-schema-edit-transform")
+(declare-function json-schema-edit-wrap-combinator "json-schema-edit-transform")
+(declare-function json-schema-edit-extract-definition "json-schema-edit-transform")
+(declare-function json-schema-edit-inline-ref "json-schema-edit-transform")
+(declare-function json-schema-edit-combinator-menu "json-schema-edit-menu")
 
 (defcustom json-schema-edit-outline-max-label-width 40
   "Maximum width of the label column; the type column starts after it."
@@ -54,6 +59,12 @@
     (window-width . 0.4))
   "Display action used to show the outline buffer."
   :type 'sexp
+  :group 'json-schema-edit)
+
+(defcustom json-schema-edit-outline-select-window t
+  "Non-nil means `json-schema-edit-outline' selects the outline window.
+Set it to nil to keep point in the schema buffer."
+  :type 'boolean
   :group 'json-schema-edit)
 
 (defface json-schema-edit-outline-heading '((t :inherit bold))
@@ -521,17 +532,23 @@ They are the root schema and one section per definitions keyword."
   "Non-nil means this outline merges allOf bases into their users.")
 
 (defun json-schema-edit-outline--flatten (entries)
-  "Return (ENTRY DEPTH PREFIX ID) for ENTRIES and their descendants."
-  (let (result)
+  "Return (ENTRY DEPTH PREFIX ID) for ENTRIES and their descendants.
+IDs are unique: entries that would share one get a counter suffix."
+  (let (result
+        (seen (make-hash-table :test #'equal)))
     (cl-labels ((walk (es depth prefix parent-id)
                   (let ((n (length es)) (i 0))
                     (dolist (e es)
                       (setq i (1+ i))
                       (let* ((last (= i n))
-                             (id (concat parent-id "/" (json-schema-edit-outline-entry-label e)
-                                         (when (json-schema-edit-outline-entry-inherited e)
-                                           "↖")))
+                             (base (concat parent-id
+                                           "/" (json-schema-edit-outline-entry-label e)
+                                           (when (json-schema-edit-outline-entry-inherited e)
+                                             "↖")))
+                             (count (1+ (gethash base seen 0)))
+                             (id (if (= count 1) base (format "%s#%d" base count)))
                              (glyph (if (zerop depth) "" (if last "└─ " "├─ "))))
+                        (puthash base count seen)
                         (push (list e depth (concat prefix glyph) id) result)
                         (walk (json-schema-edit-outline-entry-children e) (1+ depth)
                               (if (zerop depth) "" (concat prefix (if last "   " "│  ")))
@@ -637,36 +654,51 @@ Return non-nil when a line was found."
         (forward-line 1)))
     (when best (goto-char best))))
 
+(defvar-local json-schema-edit-outline--refresh-error nil
+  "Message of the last refresh failure that was reported, or nil.")
+
 (defun json-schema-edit-outline-refresh ()
-  "Redraw the outline, keeping folded headings and the line at point."
+  "Redraw the outline, keeping folded headings and the line at point.
+A failure leaves the outline as it was; the error is reported once per
+distinct message, so the idle timer cannot flood the echo area."
   (interactive)
   (unless (buffer-live-p json-schema-edit-outline--source)
     (user-error "The schema buffer is gone"))
-  (let* ((folded (json-schema-edit-outline--line-ids
-                  (lambda () (outline-invisible-p (pos-eol)))))
-         (current (get-text-property (pos-bol) 'json-schema-edit-outline-id))
-         (column (current-column))
-         (window (get-buffer-window (current-buffer)))
-         (start-id (when window
-                     (get-text-property (window-start window) 'json-schema-edit-outline-id)))
-         (merge json-schema-edit-outline-merge-allof)
-         (lines (with-current-buffer json-schema-edit-outline--source
-                  (let ((json-schema-edit-outline--merge-allof merge))
-                    (json-schema-edit-outline--flatten (json-schema-edit-outline-entries)))))
-         (inhibit-read-only t))
-    (outline-show-all)
-    (erase-buffer)
-    (json-schema-edit-outline--render lines)
-    (dolist (id folded)
-      (save-excursion
-        (when (json-schema-edit-outline--goto-id id)
-          (outline-hide-subtree))))
-    (goto-char (point-min))
-    (when (and window start-id (json-schema-edit-outline--goto-id start-id))
-      (set-window-start window (pos-bol)))
-    (if (and current (json-schema-edit-outline--goto-id current))
-        (move-to-column column)
-      (goto-char (point-min)))))
+  (condition-case err
+      (progn
+        (let* ((folded (json-schema-edit-outline--line-ids
+                        (lambda () (outline-invisible-p (pos-eol)))))
+               (current (get-text-property (pos-bol) 'json-schema-edit-outline-id))
+               (column (current-column))
+               (window (get-buffer-window (current-buffer)))
+               (start-id (when window
+                           (get-text-property (window-start window)
+                                              'json-schema-edit-outline-id)))
+               (merge json-schema-edit-outline-merge-allof)
+               (lines (with-current-buffer json-schema-edit-outline--source
+                        (let ((json-schema-edit-outline--merge-allof merge))
+                          (json-schema-edit-outline--flatten
+                           (json-schema-edit-outline-entries)))))
+               (inhibit-read-only t))
+          (outline-show-all)
+          (erase-buffer)
+          (json-schema-edit-outline--render lines)
+          (dolist (id folded)
+            (save-excursion
+              (when (json-schema-edit-outline--goto-id id)
+                (outline-hide-subtree))))
+          (goto-char (point-min))
+          (when (and window start-id (json-schema-edit-outline--goto-id start-id))
+            (set-window-start window (pos-bol)))
+          (if (and current (json-schema-edit-outline--goto-id current))
+              (move-to-column column)
+            (goto-char (point-min))))
+        (setq json-schema-edit-outline--refresh-error nil))
+    (error
+     (let ((msg (error-message-string err)))
+       (unless (equal msg json-schema-edit-outline--refresh-error)
+         (message "Outline refresh failed: %s" msg))
+       (setq json-schema-edit-outline--refresh-error msg)))))
 
 ;;;; Commands in the outline
 
@@ -711,6 +743,13 @@ When FN returns a pointer, point moves to its line."
       (goto-char (json-schema-edit-outline-entry-pos entry))
       (recenter))))
 
+(defun json-schema-edit-outline--schema-entry (entry)
+  "Return ENTRY if it shows an editable schema, or signal an error."
+  (unless (memq (json-schema-edit-outline-entry-kind entry)
+                '(root definition property pattern additional items branch))
+    (user-error "No schema on this line"))
+  entry)
+
 (defun json-schema-edit-outline-toggle-required ()
   "Toggle whether the property at point is required."
   (interactive)
@@ -725,12 +764,78 @@ When FN returns a pointer, point moves to its line."
   (interactive)
   (json-schema-edit-outline--edit
    (lambda (e)
-     (unless (memq (json-schema-edit-outline-entry-kind e)
-                   '(root definition property pattern additional items branch))
-       (user-error "No schema on this line"))
-     (json-schema-edit-change-type (json-schema-edit-outline-entry-pointer e)
-                                   (json-schema-edit-edit--read-type))
+     (json-schema-edit-change-type
+      (json-schema-edit-outline-entry-pointer
+       (json-schema-edit-outline--schema-entry e))
+      (json-schema-edit-edit--read-type))
      nil)))
+
+(defun json-schema-edit-outline-remove-property ()
+  "Remove the property at point, keeping `required' and friends in sync."
+  (interactive)
+  (json-schema-edit-outline--edit
+   (lambda (e)
+     (json-schema-edit-outline--property-entry e)
+     (when (y-or-n-p (format "Remove property %s? "
+                             (json-schema-edit-outline-entry-label e)))
+       (json-schema-edit-remove-property (json-schema-edit-outline-entry-pointer e)))
+     nil)))
+
+(defun json-schema-edit-outline-wrap-array ()
+  "Turn the schema at point into an array of it."
+  (interactive)
+  (json-schema-edit-outline--edit
+   (lambda (e)
+     (json-schema-edit-wrap-array
+      (json-schema-edit-outline-entry-pointer
+       (json-schema-edit-outline--schema-entry e)))
+     nil)))
+
+(defun json-schema-edit-outline-wrap-combinator ()
+  "Wrap the schema at point in oneOf / anyOf / allOf."
+  (interactive)
+  (let ((keyword (completing-read "Wrap in: " json-schema-edit-model-combinators
+                                  nil t nil nil "oneOf")))
+    (json-schema-edit-outline--edit
+     (lambda (e)
+       (json-schema-edit-wrap-combinator
+        (json-schema-edit-outline-entry-pointer
+         (json-schema-edit-outline--schema-entry e))
+        keyword)
+       nil))))
+
+(defun json-schema-edit-outline-extract-definition ()
+  "Move the schema at point into the definitions."
+  (interactive)
+  (json-schema-edit-outline--edit
+   (lambda (e)
+     (let* ((pointer (json-schema-edit-outline-entry-pointer
+                      (json-schema-edit-outline--schema-entry e)))
+            (_ (when (null pointer)
+                 (user-error "Cannot extract the root schema")))
+            (name (read-string "Definition name: "
+                               (capitalize (format "%s" (car (last pointer)))))))
+       (json-schema-edit-model-pointer-decode
+        (cdr (json-schema-edit-model-split-ref
+              (json-schema-edit-extract-definition pointer name))))))))
+
+(defun json-schema-edit-outline-inline-ref ()
+  "Replace the $ref of the schema at point by a copy of its target."
+  (interactive)
+  (json-schema-edit-outline--edit
+   (lambda (e)
+     (json-schema-edit-inline-ref
+      (json-schema-edit-outline-entry-pointer
+       (json-schema-edit-outline--schema-entry e)))
+     nil)))
+
+(defun json-schema-edit-outline-combinator-menu ()
+  "Open the branch menu for the oneOf / anyOf / allOf at point."
+  (interactive)
+  (let ((entry (json-schema-edit-outline--entry-at-point)))
+    (pop-to-buffer json-schema-edit-outline--source)
+    (goto-char (json-schema-edit-outline-entry-pos entry))
+    (call-interactively #'json-schema-edit-combinator-menu)))
 
 (defun json-schema-edit-outline-rename ()
   "Rename the property or definition at point."
@@ -772,10 +877,8 @@ When FN returns a pointer, point moves to its line."
 (defun json-schema-edit-outline-constraints ()
   "Edit the constraints of the schema at point."
   (interactive)
-  (let ((entry (json-schema-edit-outline--entry-at-point)))
-    (unless (memq (json-schema-edit-outline-entry-kind entry)
-                  '(root definition property pattern additional items branch))
-      (user-error "No schema on this line"))
+  (let ((entry (json-schema-edit-outline--schema-entry
+                (json-schema-edit-outline--entry-at-point))))
     (json-schema-edit-constraints json-schema-edit-outline--source
                                   (json-schema-edit-outline-entry-pointer entry))))
 
@@ -803,14 +906,21 @@ When FN returns a pointer, point moves to its line."
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "RET") #'json-schema-edit-outline-visit)
     (define-key map (kbd "C-o") #'json-schema-edit-outline-display)
-    (define-key map (kbd "r") #'json-schema-edit-outline-toggle-required)
+    (define-key map (kbd "*") #'json-schema-edit-outline-toggle-required)
     (define-key map (kbd "t") #'json-schema-edit-outline-change-type)
-    (define-key map (kbd "R") #'json-schema-edit-outline-rename)
+    (define-key map (kbd "r") #'json-schema-edit-outline-rename)
     (define-key map (kbd "a") #'json-schema-edit-outline-add-property)
+    (define-key map (kbd "k") #'json-schema-edit-outline-remove-property)
     (define-key map (kbd "c") #'json-schema-edit-outline-constraints)
-    (define-key map (kbd "?") #'json-schema-edit-outline-toggle-nullable)
+    (define-key map (kbd "N") #'json-schema-edit-outline-toggle-nullable)
+    (define-key map (kbd "[") #'json-schema-edit-outline-wrap-array)
+    (define-key map (kbd "W") #'json-schema-edit-outline-wrap-combinator)
+    (define-key map (kbd "x") #'json-schema-edit-outline-extract-definition)
+    (define-key map (kbd "i") #'json-schema-edit-outline-inline-ref)
+    (define-key map (kbd "o") #'json-schema-edit-outline-combinator-menu)
     (define-key map (kbd "m") #'json-schema-edit-outline-toggle-merge)
     (define-key map (kbd "g") #'json-schema-edit-outline-refresh)
+    (define-key map (kbd "?") #'describe-mode)
     (define-key map (kbd "n") #'next-line)
     (define-key map (kbd "p") #'previous-line)
     (dolist (cmd '(outline-move-subtree-up outline-move-subtree-down
@@ -854,7 +964,8 @@ When FN returns a pointer, point moves to its line."
              (lambda ()
                (when (buffer-live-p outline)
                  (with-current-buffer outline
-                   (ignore-errors (json-schema-edit-outline-refresh))))))))))
+                   ;; Refresh reports errors itself, once per message.
+                   (json-schema-edit-outline-refresh)))))))))
 
 (defun json-schema-edit-outline-buffer (&optional source)
   "Return the outline buffer of SOURCE (default: current buffer), creating it."
@@ -871,7 +982,9 @@ When FN returns a pointer, point moves to its line."
 
 ;;;###autoload
 (defun json-schema-edit-outline ()
-  "Show the outline of the current schema and move to the schema at point."
+  "Show the outline of the current schema and move to the schema at point.
+The outline window is selected unless
+`json-schema-edit-outline-select-window' is nil."
   (interactive)
   (let ((pointer (json-schema-edit-model-schema-pointer-at))
         (buf (json-schema-edit-outline-buffer)))
@@ -881,7 +994,8 @@ When FN returns a pointer, point moves to its line."
     (let ((window (display-buffer buf json-schema-edit-outline-display-action)))
       (when window
         (set-window-point window (with-current-buffer buf (point)))
-        (select-window window)))))
+        (when json-schema-edit-outline-select-window
+          (select-window window))))))
 
 (provide 'json-schema-edit-outline)
 ;;; json-schema-edit-outline.el ends here

@@ -210,6 +210,53 @@
                    '((properties (a) (c))
                      (dependencies (a "c") (c (required "a"))))))))
 
+(ert-deftest json-schema-edit-phase2-test-rename-property-dependent-schemas ()
+  (json-schema-edit-phase2-test--with-json
+      "{\"properties\": {\"a\": {}, \"b\": {}},
+        \"dependentSchemas\": {\"b\": {\"required\": [\"a\"]}}}"
+    (json-schema-edit-rename-property '("properties" "b") "c")
+    (should (equal (json-schema-edit-phase2-test--parse)
+                   '((properties (a) (c))
+                     (dependentSchemas (c (required "a"))))))))
+
+;;;; Removing properties
+
+(ert-deftest json-schema-edit-phase2-test-remove-property ()
+  (json-schema-edit-phase2-test--with-json
+      "{\"properties\": {\"a\": {}, \"b\": {}},
+        \"required\": [\"a\", \"b\"],
+        \"dependentRequired\": {\"a\": [\"b\"]},
+        \"dependentSchemas\": {\"b\": {}}}"
+    (json-schema-edit-remove-property '("properties" "b"))
+    ;; required is cleaned; dependentRequired and dependentSchemas are
+    ;; dropped once nothing refers to them anymore.
+    (should (equal (json-schema-edit-phase2-test--parse)
+                   '((properties (a))
+                     (required "a")))))
+  (json-schema-edit-phase2-test--with-json
+      "{\"properties\": {\"a\": {}}, \"required\": [\"a\"]}"
+    (json-schema-edit-remove-property '("properties" "a"))
+    ;; An empty required is removed.
+    (should (equal (json-schema-edit-phase2-test--parse)
+                   '((properties)))))
+  (json-schema-edit-phase2-test--with-json
+      "{\"properties\": {\"a\": {}, \"b\": {}}}"
+    ;; Interactively, the removal is confirmed.
+    (json-schema-edit-phase2-test--goto "\"b\": {}")
+    (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _) t)))
+      (call-interactively #'json-schema-edit-remove-property))
+    (should (equal (json-schema-edit-phase2-test--parse)
+                   '((properties (a))))))
+  (json-schema-edit-phase2-test--with-json
+      "{\"properties\": {\"a\": {}, \"b\": {}}}"
+    ;; Declining the confirmation leaves the buffer untouched.
+    (json-schema-edit-phase2-test--goto "\"b\": {}")
+    (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _) nil)))
+      (should-error (call-interactively #'json-schema-edit-remove-property)
+                    :type 'user-error))
+    (should (equal (json-schema-edit-phase2-test--parse)
+                   '((properties (a) (b)))))))
+
 ;;;; Renaming definitions
 
 (ert-deftest json-schema-edit-phase2-test-rename-definition ()

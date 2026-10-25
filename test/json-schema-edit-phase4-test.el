@@ -307,6 +307,18 @@
                    '((type . "array") (enum (1) (2)) (uniqueItems . t)
                      (items (type . "integer")) (description . "A list"))))))
 
+(ert-deftest json-schema-edit-phase4-test-constraint-title-and-header ()
+  (json-schema-edit-phase4-test--with-constraints "{\"type\": \"string\"}" nil
+    (json-schema-edit-phase4-test--answers '("User name" "A name")
+      (call-interactively #'json-schema-edit-constraint-title)
+      (call-interactively #'json-schema-edit-constraint-description))
+    ;; The header counts the pending changes.
+    (should (string-search "2 pending" (json-schema-edit-constraint--header)))
+    (json-schema-edit-constraint-apply)
+    (should (equal (json-schema-edit-phase4-test--parse)
+                   '((type . "string") (title . "User name")
+                     (description . "A name"))))))
+
 (ert-deftest json-schema-edit-phase4-test-constraint-undo ()
   (json-schema-edit-phase4-test--with-constraints "{\"type\": \"string\"}" nil
     (buffer-enable-undo)
@@ -324,10 +336,11 @@
       "{\"properties\": {\"s\": {\"type\": \"string\", \"enum\": [\"a\", \"b c\"]}}}"
       '("properties" "s")
     (let ((json-schema-edit-enum-return-function #'ignore)
-          (source (current-buffer)))
+          (source (current-buffer))
+          (buf-name "*JSchema Enum: #/properties/s*"))
       (save-window-excursion
         (json-schema-edit-enum-edit)
-        (with-current-buffer "*JSchema Enum*"
+        (with-current-buffer buf-name
           (should (equal (buffer-substring (pos-bol 0) (point-max)) "b c\n"))
           (insert "a\n")
           (should (equal (mapcar #'caddr (json-schema-edit-enum--problems))
@@ -337,7 +350,7 @@
           (delete-region (pos-bol 0) (point-max))
           (insert "d \"quoted\"\n")
           (json-schema-edit-enum-commit)))
-      (should-not (get-buffer "*JSchema Enum*"))
+      (should-not (get-buffer buf-name))
       (with-current-buffer source
         (json-schema-edit-constraint-apply)
         (let-alist (json-schema-edit-phase4-test--parse)
@@ -432,11 +445,18 @@
   (dolist (cmd '(json-schema-edit-dispatch json-schema-edit-combinator-menu
                  json-schema-edit-constraints-menu))
     (should (commandp cmd)))
-  (should (eq (lookup-key json-schema-edit-mode-map (kbd "C-c C-s")) #'json-schema-edit-dispatch))
+  (should (eq (lookup-key json-schema-edit-mode-map (kbd "C-c ;")) #'json-schema-edit-dispatch))
+  (should-not (lookup-key json-schema-edit-mode-map (kbd "C-c C-s")))
   (should (eq (lookup-key json-schema-edit-outline-mode-map (kbd "c"))
               #'json-schema-edit-outline-constraints))
-  (should (eq (lookup-key json-schema-edit-outline-mode-map (kbd "?"))
-              #'json-schema-edit-outline-toggle-nullable)))
+  (should (eq (lookup-key json-schema-edit-outline-mode-map (kbd "k"))
+              #'json-schema-edit-outline-remove-property))
+  (should (eq (lookup-key json-schema-edit-outline-mode-map (kbd "N"))
+              #'json-schema-edit-outline-toggle-nullable))
+  (should (eq (lookup-key json-schema-edit-outline-mode-map (kbd "r"))
+              #'json-schema-edit-outline-rename))
+  (should (eq (lookup-key json-schema-edit-outline-mode-map (kbd "*"))
+              #'json-schema-edit-outline-toggle-required)))
 
 (provide 'json-schema-edit-phase4-test)
 ;;; json-schema-edit-phase4-test.el ends here

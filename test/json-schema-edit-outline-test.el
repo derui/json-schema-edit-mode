@@ -276,11 +276,58 @@ BODY runs in the outline buffer; `source' is bound to the schema buffer."
       (should (equal .properties.age '((type . "integer"))))
       (should (equal .$defs.Address.required '("zip" "country"))))))
 
+(ert-deftest json-schema-edit-outline-test-remove-property ()
+  (json-schema-edit-outline-test--with-outline "user.schema.json"
+    (json-schema-edit-outline-test--goto "zip")
+    (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _) t)))
+      (json-schema-edit-outline-remove-property))
+    (let-alist (json-schema-edit-outline-test--source-json source)
+      (should-not (assq 'zip .$defs.Address.properties))
+      ;; The empty required is dropped.
+      (should-not (assq 'required .$defs.Address)))))
+
+(ert-deftest json-schema-edit-outline-test-transforms ()
+  (json-schema-edit-outline-test--with-outline "user.schema.json"
+    ;; [ wraps in an array.
+    (json-schema-edit-outline-test--goto "city")
+    (json-schema-edit-outline-wrap-array)
+    (let-alist (json-schema-edit-outline-test--source-json source)
+      (should (equal .$defs.Address.properties.city.type "array")))
+    ;; x extracts to a definition and moves to its line.
+    (json-schema-edit-outline-test--goto "name")
+    (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "Name")))
+      (json-schema-edit-outline-extract-definition))
+    (should (eq (json-schema-edit-outline-entry-kind
+                 (get-text-property (point) 'json-schema-edit-outline-entry))
+                'definition))
+    (let-alist (json-schema-edit-outline-test--source-json source)
+      (should (equal .properties.name '(($ref . "#/$defs/Name"))))
+      (should .$defs.Name))
+    ;; i inlines a $ref; the definition stays, being used elsewhere.
+    (json-schema-edit-outline-test--goto "address")
+    (json-schema-edit-outline-inline-ref)
+    (let-alist (json-schema-edit-outline-test--source-json source)
+      (should (assq 'properties .properties.address))
+      (should .$defs.Address))))
+
 (ert-deftest json-schema-edit-outline-test-ignore-structure-edit ()
   (json-schema-edit-outline-test--with-outline "user.schema.json"
     (should (eq (key-binding [remap outline-move-subtree-up])
                 #'json-schema-edit-outline-ignore))
-    (should (eq (key-binding (kbd "r")) #'json-schema-edit-outline-toggle-required))))
+    (should (eq (key-binding (kbd "*")) #'json-schema-edit-outline-toggle-required))
+    (should (eq (key-binding (kbd "r")) #'json-schema-edit-outline-rename))
+    (should (eq (key-binding (kbd "?")) #'describe-mode))))
+
+(ert-deftest json-schema-edit-outline-test-unique-line-ids ()
+  (with-temp-buffer
+    (insert "{\"oneOf\": [{\"title\": \"a\", \"properties\": {\"id\": {}}},
+             {\"title\": \"a\", \"properties\": {\"id\": {}}}]}")
+    (treesit-parser-create 'json)
+    (let* ((lines (json-schema-edit-outline--flatten
+                   (json-schema-edit-outline-entries)))
+           (ids (mapcar (lambda (l) (nth 3 l)) lines)))
+      ;; Same-named lines get distinct ids.
+      (should (equal (length ids) (length (seq-uniq ids)))))))
 
 ;;;; Opening and imenu
 

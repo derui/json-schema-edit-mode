@@ -166,9 +166,9 @@
 (ert-deftest json-schema-edit-test-breadcrumb ()
   (json-schema-edit-test--with-fixture "user.schema.json"
     (json-schema-edit-test--goto "\"zip\": {")
-    (should (equal (json-schema-edit-breadcrumb) "Address › zip : string (必須)"))
+    (should (equal (json-schema-edit-breadcrumb) "Address › zip : string *"))
     (json-schema-edit-test--goto "\"minLength\"")
-    (should (equal (json-schema-edit-breadcrumb) "User › name : string (必須)"))
+    (should (equal (json-schema-edit-breadcrumb) "User › name : string *"))
     (json-schema-edit-test--goto "\"address\": { \"type\"")
     (should (equal (json-schema-edit-breadcrumb)
                    "User › contact › ‹oneOf: email› › address : string"))

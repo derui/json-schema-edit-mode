@@ -29,6 +29,9 @@
 
 ;;;; Tree helpers
 
+(defconst json-schema-edit-model-combinators '("oneOf" "anyOf" "allOf")
+  "Keywords whose array elements are alternative subschemas.")
+
 (defun json-schema-edit-model--parser ()
   "Return the json parser of the current buffer, creating one if needed."
   (or (car (treesit-parser-list nil 'json))

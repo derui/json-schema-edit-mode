@@ -21,11 +21,11 @@
 ;; - schema-specific lint as a flymake backend
 ;; - adding and renaming properties with `required' kept in sync, and
 ;;   renaming definitions with every `$ref' rewritten
-;; - an outline of the data shape (`C-c C-s l'), also used by imenu
+;; - an outline of the data shape (`C-c ; l'), also used by imenu
 ;; - constraints edited by type, and routine transformations such as
 ;;   nullable, array, wrapping in oneOf and moving to `$defs'
 ;;
-;; Every operation is in the transient menu on `C-c C-s'.
+;; Every operation is in the transient menu on `C-c ;'.
 ;;
 ;; Completion and metaschema validation are left to an LSP server such
 ;; as vscode-json-languageserver.
@@ -61,9 +61,6 @@ schema; nil disables the header line."
   :group 'json-schema-edit)
 
 ;;;; Breadcrumb
-
-(defconst json-schema-edit--combinators '("oneOf" "anyOf" "allOf")
-  "Keywords whose array elements are alternative subschemas.")
 
 (defun json-schema-edit--branch-name (node index)
   "Return a name for the combinator branch NODE at INDEX."
@@ -104,7 +101,7 @@ point into `$defs' / `definitions'."
                (setq node (json-schema-edit-model-node-at-pointer (list seg idx) node)))
              (setq seg nil)))
           ("additionalProperties" (push "{*}" labels))
-          ((pred (lambda (s) (member s json-schema-edit--combinators)))
+          ((pred (lambda (s) (member s json-schema-edit-model-combinators)))
            (when segments
              (let* ((idx (pop segments))
                     (branch (json-schema-edit-model-node-at-pointer (list seg idx) node))
@@ -142,7 +139,7 @@ point into `$defs' / `definitions'."
              (required (json-schema-edit--required-p segments)))
          (concat path
                  (when type (concat " : " type))
-                 (when required " (必須)")))))))
+                 (when required " *")))))))
 
 (defvar-local json-schema-edit--breadcrumb-cache nil
   "Cached breadcrumb as (POINT TICK STRING).")
@@ -162,10 +159,13 @@ point into `$defs' / `definitions'."
 ;;;; Commands
 
 (defun json-schema-edit-toggle-breadcrumb-style ()
-  "Toggle the header line between the instance path and the schema pointer."
+  "Cycle the header line through instance path, schema pointer and off."
   (interactive)
   (setq-local json-schema-edit-breadcrumb-style
-              (if (eq json-schema-edit-breadcrumb-style 'schema) 'instance 'schema))
+              (pcase json-schema-edit-breadcrumb-style
+                ('instance 'schema)
+                ('schema nil)
+                (_ 'instance)))
   (force-mode-line-update))
 
 (defun json-schema-edit-copy-pointer ()
@@ -180,9 +180,31 @@ point into `$defs' / `definitions'."
 
 (defvar json-schema-edit-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c C-s") #'json-schema-edit-dispatch)
+    ;; `C-c ;' is a binding a minor mode may claim by convention;
+    ;; `C-c C-s' belongs to the major mode.
+    (define-key map (kbd "C-c ;") #'json-schema-edit-dispatch)
     map)
   "Keymap for `json-schema-edit-mode'.")
+
+(defun json-schema-edit--context-menu (menu _click)
+  "Add JSON Schema operations to the context MENU.
+See `context-menu-functions'."
+  (define-key-after menu [json-schema-edit-separator] '(menu-item "--"))
+  (define-key-after menu [json-schema-edit-outline]
+    '(menu-item "Outline" json-schema-edit-outline))
+  (define-key-after menu [json-schema-edit-add-property]
+    '(menu-item "Add property" json-schema-edit-add-property))
+  (define-key-after menu [json-schema-edit-rename-property]
+    '(menu-item "Rename property" json-schema-edit-rename-property))
+  (define-key-after menu [json-schema-edit-toggle-required]
+    '(menu-item "Toggle required" json-schema-edit-toggle-required))
+  (define-key-after menu [json-schema-edit-change-type]
+    '(menu-item "Change type" json-schema-edit-change-type))
+  (define-key-after menu [json-schema-edit-constraints]
+    '(menu-item "Constraints..." json-schema-edit-constraints))
+  (define-key-after menu [json-schema-edit-find-references]
+    '(menu-item "Find references" xref-find-references))
+  menu)
 
 (defconst json-schema-edit--header-line-format
   '(:eval (json-schema-edit--header-line))
@@ -205,6 +227,7 @@ point into `$defs' / `definitions'."
         (add-hook 'eldoc-documentation-functions
                   #'json-schema-edit-xref-eldoc-function nil t)
         (add-hook 'flymake-diagnostic-functions #'json-schema-edit-lint-flymake nil t)
+        (add-hook 'context-menu-functions #'json-schema-edit--context-menu nil t)
         (setq-local imenu-create-index-function #'json-schema-edit-outline-imenu-index)
         (setq-local header-line-format
                     (if (listp header-line-format)
@@ -214,6 +237,7 @@ point into `$defs' / `definitions'."
     (remove-hook 'xref-backend-functions #'json-schema-edit-xref-backend t)
     (remove-hook 'eldoc-documentation-functions #'json-schema-edit-xref-eldoc-function t)
     (remove-hook 'flymake-diagnostic-functions #'json-schema-edit-lint-flymake t)
+    (remove-hook 'context-menu-functions #'json-schema-edit--context-menu t)
     (remove-hook 'after-change-functions #'json-schema-edit-outline--schedule t)
     (kill-local-variable 'imenu-create-index-function)
     (setq-local header-line-format

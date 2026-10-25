@@ -385,23 +385,28 @@ Keywords that no longer apply are listed and removed on confirmation."
                                       (json-schema-edit-model-object-pairs node))))))
     (unless (equal (treesit-node-type node) "object")
       (user-error "No schema object at point"))
-    (json-schema-edit-edit--with-undo
-      (json-schema-edit-edit-set-member
-       (json-schema-edit-model-node-at-pointer pointer)
-       (if ref-p "$ref" "type") (json-schema-edit-edit--literal type))
-      (json-schema-edit-edit-remove-member
-       (json-schema-edit-model-node-at-pointer pointer) (if ref-p "type" "$ref"))
-      (when (and stale
-                 (y-or-n-p (format-message "Remove keywords that no longer apply (%s)? "
-                                           (string-join stale ", "))))
-        (dolist (k stale)
-          (json-schema-edit-edit-remove-member
-           (json-schema-edit-model-node-at-pointer pointer) k))))))
+    ;; Ask before writing anything, so a negative answer leaves the
+    ;; schema as it was.
+    (let ((drop (and stale
+                     (y-or-n-p
+                      (format-message "Remove keywords that no longer apply (%s)? "
+                                      (string-join stale ", "))))))
+      (json-schema-edit-edit--with-undo
+        (json-schema-edit-edit-set-member
+         (json-schema-edit-model-node-at-pointer pointer)
+         (if ref-p "$ref" "type") (json-schema-edit-edit--literal type))
+        (json-schema-edit-edit-remove-member
+         (json-schema-edit-model-node-at-pointer pointer) (if ref-p "type" "$ref"))
+        (when drop
+          (dolist (k stale)
+            (json-schema-edit-edit-remove-member
+             (json-schema-edit-model-node-at-pointer pointer) k)))))))
 
 (defun json-schema-edit-edit--rename-replacements (owner old new)
   "Return replacements renaming the property OLD to NEW in the OWNER node.
 The key in `properties' and the names in `required',
-`dependentRequired' and `dependencies' are covered."
+`dependentRequired', `dependencies' and `dependentSchemas' are
+covered."
   (let ((new-lit (json-schema-edit-edit--literal new))
         result)
     (cl-flet ((names-in (array)
@@ -421,7 +426,9 @@ The key in `properties' and the names in `required',
         (let ((deps (json-schema-edit-model-get owner kw)))
           (key-of deps)
           (dolist (pair (json-schema-edit-model-object-pairs deps))
-            (names-in (json-schema-edit-model-pair-value pair))))))
+            (names-in (json-schema-edit-model-pair-value pair)))))
+      ;; The values of `dependentSchemas' are schemas, not name arrays.
+      (key-of (json-schema-edit-model-get owner "dependentSchemas")))
     result))
 
 (defun json-schema-edit-rename-property (pointer new)
@@ -445,6 +452,69 @@ POINTER ends with \"properties\" and the current name."
       (json-schema-edit-edit--with-undo
         (json-schema-edit-edit--apply-replacements
          (json-schema-edit-edit--rename-replacements owner old new)))))))
+
+(defun json-schema-edit-edit--remove-name-references (owner-ptr name)
+  "Remove references to the property NAME in the schema at OWNER-PTR.
+Covers `required', `dependentRequired', `dependencies' and
+`dependentSchemas'.  The owner is re-read after every edit, since an
+edit invalidates the tree nodes."
+  (cl-flet ((owner () (json-schema-edit-model-node-at-pointer owner-ptr)))
+    (let ((required (json-schema-edit-model-get (owner) "required")))
+      (when (member name (json-schema-edit-edit--names required))
+        (if (equal (json-schema-edit-edit--names required) (list name))
+            (json-schema-edit-edit-remove-member (owner) "required")
+          (json-schema-edit-edit-remove-element
+           required
+           (seq-find (lambda (n) (equal (json-schema-edit-model-string-value n) name))
+                     (json-schema-edit-model--value-children required))))))
+    (dolist (kw '("dependentRequired" "dependencies" "dependentSchemas"))
+      ;; Remove NAME from the name arrays of KW.  One edit per
+      ;; iteration, so the tree is re-read after every change.
+      (cl-loop for pair = (seq-find
+                           (lambda (p)
+                             (let ((v (json-schema-edit-model-pair-value p)))
+                               (and (equal (treesit-node-type v) "array")
+                                    (member name (json-schema-edit-edit--names v)))))
+                           (json-schema-edit-model-object-pairs
+                            (json-schema-edit-model-get (owner) kw)))
+               while pair
+               do (let ((v (json-schema-edit-model-pair-value pair)))
+                    (if (equal (json-schema-edit-edit--names v) (list name))
+                        ;; A name array that became empty says nothing.
+                        (json-schema-edit-edit-remove-member
+                         (json-schema-edit-model-get (owner) kw)
+                         (json-schema-edit-model-pair-key pair))
+                      (json-schema-edit-edit-remove-element
+                       v (seq-find
+                          (lambda (n) (equal (json-schema-edit-model-string-value n) name))
+                          (json-schema-edit-model--value-children v))))))
+      (json-schema-edit-edit-remove-member (json-schema-edit-model-get (owner) kw) name)
+      ;; A keyword left with an empty object says nothing either.
+      (when (and (json-schema-edit-model-get (owner) kw)
+                 (null (json-schema-edit-model-object-pairs
+                        (json-schema-edit-model-get (owner) kw))))
+        (json-schema-edit-edit-remove-member (owner) kw)))))
+
+(defun json-schema-edit-remove-property (pointer)
+  "Remove the property at POINTER from its object schema.
+POINTER ends with \"properties\" and the property name.  The name is
+also removed from `required', `dependentRequired', `dependencies' and
+`dependentSchemas'.  Called interactively, the removal is confirmed
+first."
+  (interactive
+   (let ((pointer (or (json-schema-edit-edit--property-pointer)
+                      (user-error "No property at point"))))
+     (unless (y-or-n-p (format "Remove property %s? " (car (last pointer))))
+       (user-error "Aborted"))
+     (list pointer)))
+  (let ((owner-ptr (butlast pointer 2))
+        (name (car (last pointer))))
+    (json-schema-edit-edit--with-undo
+      (json-schema-edit-edit-remove-member
+       (json-schema-edit-model-get
+        (json-schema-edit-model-node-at-pointer owner-ptr) "properties")
+       name)
+      (json-schema-edit-edit--remove-name-references owner-ptr name))))
 
 ;;;; Definitions
 
@@ -509,6 +579,14 @@ of FILE (nil meaning the current buffer) through a JSON Pointer."
               (json-schema-edit-edit--ref-replacements self prefix prefix))))
      (funcall json-schema-edit-reference-files-function))))
 
+(defun json-schema-edit-edit--file-list-text (files)
+  "Return a short, human readable list of FILES."
+  (if (<= (length files) 3)
+      (mapconcat #'file-relative-name files ", ")
+    (format "%s, ... (%d files)"
+            (mapconcat #'file-relative-name (seq-take files 3) ", ")
+            (length files))))
+
 (defun json-schema-edit-rename-definition (definition new)
   "Rename DEFINITION, a list (KEYWORD NAME), to NEW.
 Every `$ref' to it in this buffer is rewritten.  When other schema
@@ -536,8 +614,8 @@ are visited and modified but not saved."
              ;; them needs the old name.
              (external
               (when (and others
-                         (y-or-n-p (format "Update references in %d other file(s)? "
-                                           (length others))))
+                         (y-or-n-p (format "Update references in %s? "
+                                           (json-schema-edit-edit--file-list-text others))))
                 (mapcar (lambda (file)
                           (with-current-buffer (find-file-noselect file)
                             (json-schema-edit-model--parser)
@@ -554,7 +632,12 @@ are visited and modified but not saved."
         (pcase-dolist (`(,buf . ,replacements) external)
           (with-current-buffer buf
             (json-schema-edit-edit--with-undo
-              (json-schema-edit-edit--apply-replacements replacements)))))))))
+              (json-schema-edit-edit--apply-replacements replacements))))
+        (when external
+          (message "Updated references in %s; save the buffers to keep the changes"
+                   (json-schema-edit-edit--file-list-text
+                    (delq nil (mapcar (lambda (e) (buffer-file-name (car e)))
+                                      external))))))))))
 
 (provide 'json-schema-edit-edit)
 ;;; json-schema-edit-edit.el ends here
