@@ -310,6 +310,21 @@ BODY runs in the outline buffer; `source' is bound to the schema buffer."
       (should (assq 'properties .properties.address))
       (should .$defs.Address))))
 
+(ert-deftest json-schema-edit-outline-test-move-property ()
+  (json-schema-edit-outline-test--with-outline "user.schema.json"
+    (json-schema-edit-outline-test--goto "name")
+    (json-schema-edit-outline-move-property-down)
+    (let-alist (json-schema-edit-outline-test--source-json source)
+      (should (equal (mapcar #'car .properties)
+                     '(id address name home tags audit contact broken slash))))
+    ;; Point follows the moved property.
+    (should (equal (json-schema-edit-outline-entry-label
+                    (get-text-property (point) 'json-schema-edit-outline-entry))
+                   "name"))
+    ;; Definitions and other kinds cannot be moved.
+    (goto-char (point-min))
+    (should-error (json-schema-edit-outline-move-property-down) :type 'user-error)))
+
 (ert-deftest json-schema-edit-outline-test-ignore-structure-edit ()
   (json-schema-edit-outline-test--with-outline "user.schema.json"
     (should (eq (key-binding [remap outline-move-subtree-up])

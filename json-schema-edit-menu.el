@@ -61,6 +61,8 @@
     ("k" "remove" json-schema-edit-remove-property)
     ("*" "toggle required" json-schema-edit-toggle-required)
     ("t" "change type" json-schema-edit-change-type)
+    ("M-p" "move up" json-schema-edit-move-property-up)
+    ("M-n" "move down" json-schema-edit-move-property-down)
     ("c" "constraints..." json-schema-edit-constraints)]]
   [["Transform"
     ("N" "toggle nullable" json-schema-edit-toggle-nullable)

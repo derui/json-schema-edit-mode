@@ -257,6 +257,32 @@
     (should (equal (json-schema-edit-phase2-test--parse)
                    '((properties (a) (b)))))))
 
+;;;; Moving properties
+
+(ert-deftest json-schema-edit-phase2-test-move-property ()
+  (json-schema-edit-phase2-test--with-json
+      "{\"properties\": {\"a\": {}, \"b\": {}, \"c\": {}}}"
+    (json-schema-edit-move-property-down '("properties" "a"))
+    (should (equal (json-schema-edit-phase2-test--parse)
+                   '((properties (b) (a) (c)))))
+    (json-schema-edit-move-property-up '("properties" "a"))
+    (should (equal (json-schema-edit-phase2-test--parse)
+                   '((properties (a) (b) (c)))))
+    (should-error (json-schema-edit-move-property-up '("properties" "a"))
+                  :type 'user-error)
+    (should-error (json-schema-edit-move-property-down '("properties" "c"))
+                  :type 'user-error)
+    ;; Only the properties of an object can be moved.
+    (should-error (json-schema-edit-edit--move-property '("oneOf" 0) 1)
+                  :type 'user-error)))
+
+(ert-deftest json-schema-edit-phase2-test-move-property-nested ()
+  (json-schema-edit-phase2-test--with-json
+      "{\"properties\": {\"o\": {\"properties\": {\"x\": {}, \"y\": {}}}}}"
+    (json-schema-edit-move-property-down '("properties" "o" "properties" "x"))
+    (should (equal (json-schema-edit-phase2-test--parse)
+                   '((properties (o (properties (y) (x)))))))))
+
 ;;;; Renaming definitions
 
 (ert-deftest json-schema-edit-phase2-test-rename-definition ()

@@ -142,6 +142,7 @@ to see them:
 |---------------------|-----------------------------|
 | `M-.`               | Go to the `$ref` definition |
 | `M-?`               | List references to the definition or `$ref` at point |
+| `M-p` / `M-n`       | Move the property at point up / down |
 | `C-c ;`             | Menu of every operation (below) |
 
 `C-c ;` is a binding a minor mode may claim by convention (`C-c C-s`
@@ -158,6 +159,7 @@ The `C-c ;` menu:
 | `a` | Add a property                                     |
 | `r` | Rename the property at point                       |
 | `k` | Remove the property at point, after confirmation   |
+| `M-p` / `M-n` | Move the property up / down             |
 | `*` | Toggle required                                    |
 | `t` | Change type                                        |
 | `c` | Edit constraints…                                 |
@@ -197,6 +199,7 @@ required, `N` toggles nullable, in both):
 | `r`             | Rename the property or definition                                     |
 | `a`             | Add a property next to the one at point (or into the object at point) |
 | `k`             | Remove the property, keeping `required` and friends in sync           |
+| `M-p` / `M-n`   | Move the property up / down                                           |
 | `c`             | Edit constraints                                                      |
 | `N`             | Toggle nullable                                                       |
 | `[`             | Make an array of it                                                   |

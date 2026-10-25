@@ -516,6 +516,46 @@ first."
        name)
       (json-schema-edit-edit--remove-name-references owner-ptr name))))
 
+(defun json-schema-edit-edit--move-property (pointer delta)
+  "Move the property at POINTER by DELTA (-1 or 1) within its object.
+POINTER ends with \"properties\" and the property name; only the
+properties of an object can be reordered.  Return POINTER."
+  (unless (and (>= (length pointer) 2)
+               (equal (car (last pointer 2)) "properties"))
+    (user-error "Only the properties of an object can be moved"))
+  (let* ((props (json-schema-edit-model-node-at-pointer
+                 (append (butlast pointer 2) '("properties"))))
+         (pairs (json-schema-edit-model-object-pairs props))
+         (name (car (last pointer)))
+         (pair (seq-find (lambda (p) (equal (json-schema-edit-model-pair-key p) name))
+                         pairs))
+         (other (and pair
+                     (+ (seq-position pairs pair #'treesit-node-eq) delta))))
+    (unless (and pair (<= 0 other) (< other (length pairs)))
+      (user-error "Cannot move the property further"))
+    (let ((b (nth other pairs)))
+      (json-schema-edit-edit--with-undo
+        (json-schema-edit-edit--apply-replacements
+         (list (json-schema-edit-edit--node-replacement pair (treesit-node-text b t))
+               (json-schema-edit-edit--node-replacement b (treesit-node-text pair t))))))
+    pointer))
+
+(defun json-schema-edit-move-property-up (pointer)
+  "Move the property at POINTER up among the properties of its object.
+POINTER ends with \"properties\" and the property name."
+  (interactive
+   (list (or (json-schema-edit-edit--property-pointer)
+             (user-error "Only the properties of an object can be moved"))))
+  (json-schema-edit-edit--move-property pointer -1))
+
+(defun json-schema-edit-move-property-down (pointer)
+  "Move the property at POINTER down among the properties of its object.
+POINTER ends with \"properties\" and the property name."
+  (interactive
+   (list (or (json-schema-edit-edit--property-pointer)
+             (user-error "Only the properties of an object can be moved"))))
+  (json-schema-edit-edit--move-property pointer 1))
+
 ;;;; Definitions
 
 (defun json-schema-edit-edit--definition-pointer (&optional pos)

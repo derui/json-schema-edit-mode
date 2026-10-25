@@ -874,6 +874,26 @@ When FN returns a pointer, point moves to its line."
                                         (y-or-n-p "Required? "))
          (append owner (list "properties" name)))))))
 
+(defun json-schema-edit-outline-move-property-up ()
+  "Move the property at point up among its siblings."
+  (interactive)
+  (json-schema-edit-outline--edit
+   (lambda (e)
+     (json-schema-edit-edit--move-property
+      (json-schema-edit-outline-entry-pointer
+       (json-schema-edit-outline--property-entry e))
+      -1))))
+
+(defun json-schema-edit-outline-move-property-down ()
+  "Move the property at point down among its siblings."
+  (interactive)
+  (json-schema-edit-outline--edit
+   (lambda (e)
+     (json-schema-edit-edit--move-property
+      (json-schema-edit-outline-entry-pointer
+       (json-schema-edit-outline--property-entry e))
+      1))))
+
 (defun json-schema-edit-outline-constraints ()
   "Edit the constraints of the schema at point."
   (interactive)
@@ -911,6 +931,8 @@ When FN returns a pointer, point moves to its line."
     (define-key map (kbd "r") #'json-schema-edit-outline-rename)
     (define-key map (kbd "a") #'json-schema-edit-outline-add-property)
     (define-key map (kbd "k") #'json-schema-edit-outline-remove-property)
+    (define-key map (kbd "M-p") #'json-schema-edit-outline-move-property-up)
+    (define-key map (kbd "M-n") #'json-schema-edit-outline-move-property-down)
     (define-key map (kbd "c") #'json-schema-edit-outline-constraints)
     (define-key map (kbd "N") #'json-schema-edit-outline-toggle-nullable)
     (define-key map (kbd "[") #'json-schema-edit-outline-wrap-array)

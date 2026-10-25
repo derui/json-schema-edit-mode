@@ -183,6 +183,8 @@ point into `$defs' / `definitions'."
     ;; `C-c ;' is a binding a minor mode may claim by convention;
     ;; `C-c C-s' belongs to the major mode.
     (define-key map (kbd "C-c ;") #'json-schema-edit-dispatch)
+    (define-key map (kbd "M-p") #'json-schema-edit-move-property-up)
+    (define-key map (kbd "M-n") #'json-schema-edit-move-property-down)
     map)
   "Keymap for `json-schema-edit-mode'.")
 
