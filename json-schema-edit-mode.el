@@ -101,7 +101,8 @@ point into `$defs' / `definitions'."
                (setq node (json-schema-edit-model-node-at-pointer (list seg idx) node)))
              (setq seg nil)))
           ("additionalProperties" (push "{*}" labels))
-          ((pred (lambda (s) (member s json-schema-edit-model-combinators)))
+          ((pred (lambda (s)
+                   (memq (intern-soft s) json-schema-edit-model-combinators)))
            (when segments
              (let* ((idx (pop segments))
                     (branch (json-schema-edit-model-node-at-pointer (list seg idx) node))

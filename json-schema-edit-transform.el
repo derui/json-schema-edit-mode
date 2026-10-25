@@ -145,7 +145,10 @@ unwrapped from, anyOf with {\"type\": \"null\"}."
   "Wrap the schema at POINTER in KEYWORD (oneOf, anyOf or allOf)."
   (interactive
    (list (json-schema-edit-model-schema-pointer-at)
-         (completing-read "Wrap in: " json-schema-edit-transform--combinators nil t
+         (completing-read "Wrap in: "
+                          (mapcar #'symbol-name
+                                 json-schema-edit-transform--combinators)
+                          nil t
                           nil nil "oneOf")))
   (json-schema-edit-transform--wrap
    pointer (lambda (inner)
@@ -240,15 +243,19 @@ INDEX is the branch POINTER is in, or nil when POINTER is the owner."
       (while (and p (not found))
         (let ((n (length p)))
           (when (and (>= n 2)
-                     (member (nth (- n 2) p) json-schema-edit-transform--combinators)
+                     (stringp (nth (- n 2) p))
+                     (memq (intern-soft (nth (- n 2) p))
+                           json-schema-edit-transform--combinators)
                      (integerp (nth (1- n) p)))
             (setq found (list (butlast p 2) (nth (- n 2) p) (nth (1- n) p)))))
         (setq p (butlast p))))
     (or (let ((node (json-schema-edit-model-node-at-pointer pointer)))
-          (when-let* ((kw (seq-find (lambda (k) (json-schema-edit-model-get node k))
+          (when-let* ((kw (seq-find (lambda (k)
+                                      (json-schema-edit-model-get
+                                       node (symbol-name k)))
                                     json-schema-edit-transform--combinators)))
             (unless (and found (equal (car found) pointer))
-              (list pointer kw nil))))
+              (list pointer (symbol-name kw) nil))))
         found
         (user-error "No oneOf / anyOf / allOf at point"))))
 
@@ -346,7 +353,10 @@ branch fixes it with `const' and `required'; otherwise a type is asked."
    (pcase-let ((`(,owner ,kw ,_) (json-schema-edit-transform--combinator-at)))
      (list owner kw
            (completing-read (format "Switch %s to: " kw)
-                            (remove kw json-schema-edit-transform--combinators) nil t))))
+                            (mapcar #'symbol-name
+                                    (delq (intern-soft kw)
+                                          json-schema-edit-transform--combinators))
+                            nil t))))
   (let* ((node (json-schema-edit-model-node-at-pointer owner))
          (effect (cdr (assoc (cons keyword new) json-schema-edit-transform--switch-effects))))
     (when (json-schema-edit-model-get node new)

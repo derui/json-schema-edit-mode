@@ -794,7 +794,9 @@ When FN returns a pointer, point moves to its line."
 (defun json-schema-edit-outline-wrap-combinator ()
   "Wrap the schema at point in oneOf / anyOf / allOf."
   (interactive)
-  (let ((keyword (completing-read "Wrap in: " json-schema-edit-model-combinators
+  (let ((keyword (completing-read "Wrap in: "
+                                  (mapcar #'symbol-name
+                                          json-schema-edit-model-combinators)
                                   nil t nil nil "oneOf")))
     (json-schema-edit-outline--edit
      (lambda (e)
