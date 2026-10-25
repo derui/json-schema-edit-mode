@@ -22,6 +22,7 @@
 
 (declare-function json-schema-edit-toggle-breadcrumb-style "json-schema-edit-mode")
 (declare-function json-schema-edit-copy-pointer "json-schema-edit-mode")
+(declare-function json-schema-edit-new "json-schema-edit-mode")
 
 (defun json-schema-edit-menu--combinator-desc ()
   "Return the header of the combinator menu for point."
@@ -52,6 +53,7 @@
 (transient-define-prefix json-schema-edit-dispatch ()
   "Operations of `json-schema-edit-mode'."
   [["View"
+    ("n" "new schema" json-schema-edit-new)
     ("l" "outline" json-schema-edit-outline)
     ("b" "toggle breadcrumb style" json-schema-edit-toggle-breadcrumb-style)
     ("w" "copy JSON Pointer" json-schema-edit-copy-pointer)]

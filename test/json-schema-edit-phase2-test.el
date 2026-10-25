@@ -129,6 +129,23 @@
 
 ;;;; Adding properties
 
+(ert-deftest json-schema-edit-phase2-test-new-schema ()
+  (dolist (case '(("2020-12" . "https://json-schema.org/draft/2020-12/schema")
+                  ("draft-07" . "http://json-schema.org/draft-07/schema#")))
+    (save-window-excursion
+      (json-schema-edit-new (car case) "Person")
+      (unwind-protect
+          (progn
+            (should json-schema-edit-mode)
+            (should (equal (json-schema-edit-phase2-test--parse)
+                           `((\$schema . ,(cdr case)) (title . "Person")
+                             (type . "object") (properties))))
+            (json-schema-edit-add-property nil "name" "string" nil)
+            (should (json-schema-edit-model-get
+                     (json-schema-edit-model-node-at-pointer '("properties")) "name")))
+        (kill-buffer (current-buffer)))))
+  (should-error (json-schema-edit-new "2019-09" "X") :type 'user-error))
+
 (ert-deftest json-schema-edit-phase2-test-add-property-multiline ()
   (json-schema-edit-phase2-test--with-copy "user.schema.json"
     (json-schema-edit-phase2-test--goto "\"zip\": {")

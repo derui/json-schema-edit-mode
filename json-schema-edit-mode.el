@@ -256,5 +256,32 @@ See `context-menu-functions'."
              (json-schema-edit-model-schema-p))
     (json-schema-edit-mode 1)))
 
+(defconst json-schema-edit--new-schema-versions
+  '(("2020-12" . "https://json-schema.org/draft/2020-12/schema")
+    ("draft-07" . "http://json-schema.org/draft-07/schema#"))
+  "Schema versions `json-schema-edit-new' can start from.")
+
+;;;###autoload
+(defun json-schema-edit-new (version title)
+  "Create a new schema buffer of VERSION titled TITLE.
+VERSION is either \"2020-12\" or \"draft-07\".  The schema starts as an
+object with empty `properties'."
+  (interactive
+   (list (completing-read "Schema version: "
+                          (mapcar #'car json-schema-edit--new-schema-versions)
+                          nil t nil nil "2020-12")
+         (read-string "Title: ")))
+  (let ((uri (cdr (assoc version json-schema-edit--new-schema-versions))))
+    (unless uri
+      (user-error "Unsupported schema version: %s" version))
+    (switch-to-buffer (generate-new-buffer (format "*%s.schema.json*" title)))
+    (insert (format "{\n  \"$schema\": %s,\n  \"title\": %s,\n  \"type\": \"object\",\n  \"properties\": {}\n}\n"
+                    (json-schema-edit-edit--literal uri)
+                    (json-schema-edit-edit--literal title)))
+    (json-ts-mode)
+    (json-schema-edit-mode 1)
+    (goto-char (point-min))
+    (set-buffer-modified-p nil)))
+
 (provide 'json-schema-edit-mode)
 ;;; json-schema-edit-mode.el ends here
