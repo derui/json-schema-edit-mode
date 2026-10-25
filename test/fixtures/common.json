@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Timestamps": {
+      "type": "object",
+      "title": "Timestamps",
+      "properties": {
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Self": { "$ref": "#/$defs/Timestamps" }
+  }
+}

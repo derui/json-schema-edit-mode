@@ -1,0 +1,32 @@
+# https://taskfile.dev
+version: '3'
+
+vars:
+  EMACS: '{{.EMACS | default "emacs"}}'
+  SOURCES: json-schema-edit-model.el json-schema-edit-xref.el json-schema-edit-mode.el
+
+env:
+  # Directory containing libtree-sitter-json.so, if it is not on the
+  # default load path of Emacs.
+  TREESIT_GRAMMAR_DIR: '{{.TREESIT_GRAMMAR_DIR}}'
+
+tasks:
+  default:
+    desc: Run test and checkdoc in parallel
+    deps: [test, checkdoc]
+
+  test:
+    desc: Run ERT tests
+    cmds:
+      - '{{.EMACS}} -Q --batch -L . -L test -l test/json-schema-edit-test.el -f ert-run-tests-batch-and-exit'
+
+  checkdoc:
+    desc: Check documentation strings
+    cmds:
+      - '{{.EMACS}} -Q --batch -L . -l test/run-checkdoc.el {{.SOURCES}}'
+
+  compile:
+    desc: Byte-compile sources with warnings as errors
+    cmds:
+      - '{{.EMACS}} -Q --batch -L . --eval "(setq byte-compile-error-on-warn t)" -f batch-byte-compile {{.SOURCES}}'
+      - rm -f *.elc

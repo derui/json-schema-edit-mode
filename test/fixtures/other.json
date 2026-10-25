@@ -1,0 +1,7 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "UsesAddress": { "$ref": "user.schema.json#/$defs/Address" },
+    "UsesTimestamps": { "$ref": "common.json#/$defs/Timestamps" }
+  }
+}
