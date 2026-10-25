@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "User",
+  "allOf": [
+    { "$ref": "#/$defs/Timestamps" },
+    {
+      "type": "object",
+      "required": ["id", "contact"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "nickname": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "amount": { "anyOf": [{ "type": "number" }, { "type": "string" }] },
+        "age": { "type": "integer", "exclusiveMinimum": 0, "maximum": 150 },
+        "status": { "oneOf": [{ "const": "active", "title": "Active" }, { "const": "gone" }] },
+        "tags": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "contact": {
+          "oneOf": [
+            { "type": "object", "required": ["kind"], "properties": { "kind": { "const": "email" }, "address": { "type": "string", "format": "email" } } },
+            { "type": "object", "properties": { "kind": { "const": "phone" }, "number": { "type": "string", "pattern": "^\\+?\\d+$" } } }
+          ]
+        },
+        "misc": { "oneOf": [{ "type": "object", "properties": { "a": {} } }, { "type": "array" }] }
+      }
+    }
+  ],
+  "$defs": {
+    "Pet": {
+      "oneOf": [{ "$ref": "#/$defs/Cat" }, { "$ref": "#/$defs/Dog" }],
+      "discriminator": { "propertyName": "petType" }
+    },
+    "Cat": { "type": "object", "properties": { "petType": { "const": "cat" }, "lives": { "type": "integer" } } },
+    "Dog": { "type": "object", "properties": { "petType": { "const": "dog" } } },
+    "Timestamps": {
+      "type": "object",
+      "required": ["createdAt"],
+      "properties": {
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

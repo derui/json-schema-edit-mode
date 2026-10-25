@@ -3,7 +3,7 @@ version: '3'
 
 vars:
   EMACS: '{{.EMACS | default "emacs"}}'
-  SOURCES: json-schema-edit-model.el json-schema-edit-xref.el json-schema-edit-edit.el json-schema-edit-lint.el json-schema-edit-mode.el
+  SOURCES: json-schema-edit-model.el json-schema-edit-xref.el json-schema-edit-edit.el json-schema-edit-lint.el json-schema-edit-outline.el json-schema-edit-mode.el
 
 env:
   # Directory containing libtree-sitter-json.so, if it is not on the
@@ -18,7 +18,10 @@ tasks:
   test:
     desc: Run ERT tests
     cmds:
-      - '{{.EMACS}} -Q --batch -L . -L test -l test/json-schema-edit-test.el -l test/json-schema-edit-phase2-test.el -f ert-run-tests-batch-and-exit'
+      - >-
+        {{.EMACS}} -Q --batch -L . -L test
+        --eval '(dolist (f (directory-files "test" t "-test\\.el\\'"'"'")) (load f nil t))'
+        -f ert-run-tests-batch-and-exit
 
   checkdoc:
     desc: Check documentation strings

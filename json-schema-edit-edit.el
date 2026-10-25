@@ -15,6 +15,9 @@
 ;;   `dependencies'
 ;; - renaming a definition rewrites every `$ref' to it, optionally in
 ;;   the other schema files too
+;; - toggling `required' of a property
+;; - changing the type of a schema, offering to drop the keywords that
+;;   no longer apply
 
 ;;; Code:
 
@@ -117,6 +120,40 @@ Return the position of the new key."
   "Append VALUE-TEXT at the end of the ARRAY node."
   (json-schema-edit-edit--append
    array (json-schema-edit-model--value-children array) value-text))
+
+(defun json-schema-edit-edit--remove (node siblings)
+  "Delete NODE, one of SIBLINGS in its container, with its separator."
+  (let ((idx (seq-position siblings node #'treesit-node-eq)))
+    (cond
+     ((= (length siblings) 1)
+      (let ((parent (treesit-node-parent node)))
+        (delete-region (1+ (treesit-node-start parent)) (1- (treesit-node-end parent)))))
+     ((< idx (1- (length siblings)))
+      (delete-region (treesit-node-start node)
+                     (treesit-node-start (nth (1+ idx) siblings))))
+     (t
+      (delete-region (treesit-node-end (nth (1- idx) siblings))
+                     (treesit-node-end node))))))
+
+(defun json-schema-edit-edit-remove-member (object key)
+  "Remove KEY from the OBJECT node, if present."
+  (let ((pairs (json-schema-edit-model-object-pairs object)))
+    (when-let* ((pair (seq-find (lambda (p) (equal (json-schema-edit-model-pair-key p) key))
+                                pairs)))
+      (json-schema-edit-edit--remove pair pairs))))
+
+(defun json-schema-edit-edit-remove-element (array element)
+  "Remove the ELEMENT node from the ARRAY node."
+  (json-schema-edit-edit--remove element (json-schema-edit-model--value-children array)))
+
+(defun json-schema-edit-edit-set-member (object key value-text)
+  "Set KEY of the OBJECT node to VALUE-TEXT, adding it when missing."
+  (if-let* ((value (json-schema-edit-model-get object key)))
+      (save-excursion
+        (goto-char (treesit-node-start value))
+        (delete-region (treesit-node-start value) (treesit-node-end value))
+        (insert value-text))
+    (json-schema-edit-edit-add-member object key value-text)))
 
 (defun json-schema-edit-edit--apply-replacements (replacements)
   "Apply REPLACEMENTS, a list of (BEG END TEXT), in the current buffer.
@@ -237,6 +274,64 @@ one holding the property at point)."
      (t
       (json-schema-edit-edit-add-member
        node "required" (concat "[" (json-schema-edit-edit--literal name) "]"))))))
+
+(defun json-schema-edit-edit-required-p (pointer)
+  "Return non-nil if the property at POINTER is listed in `required'."
+  (let ((owner (json-schema-edit-model-node-at-pointer (butlast pointer 2))))
+    (member (car (last pointer))
+            (json-schema-edit-edit--names (json-schema-edit-model-get owner "required")))))
+
+(defun json-schema-edit-toggle-required (pointer)
+  "Toggle whether the property at POINTER is listed in `required'.
+POINTER ends with \"properties\" and the property name.  An empty
+`required' is removed."
+  (interactive
+   (list (or (json-schema-edit-edit--property-pointer)
+             (user-error "No property at point"))))
+  (let* ((owner-ptr (butlast pointer 2))
+         (name (car (last pointer))))
+    (json-schema-edit-edit--with-undo
+      (if (not (json-schema-edit-edit-required-p pointer))
+          (json-schema-edit-edit--add-required owner-ptr name)
+        (let* ((owner (json-schema-edit-model-node-at-pointer owner-ptr))
+               (required (json-schema-edit-model-get owner "required"))
+               (elements (json-schema-edit-model--value-children required)))
+          (if (seq-every-p (lambda (n) (equal (json-schema-edit-model-string-value n) name))
+                           elements)
+              (json-schema-edit-edit-remove-member owner "required")
+            (json-schema-edit-edit-remove-element
+             required
+             (seq-find (lambda (n) (equal (json-schema-edit-model-string-value n) name))
+                       elements))))))))
+
+(defun json-schema-edit-change-type (pointer type)
+  "Change the type of the schema at POINTER to TYPE.
+A TYPE that looks like a reference replaces `type' with `$ref'.
+Keywords that no longer apply are listed and removed on confirmation."
+  (interactive
+   (list (json-schema-edit-model-schema-pointer-at)
+         (json-schema-edit-edit--read-type)))
+  (let* ((ref-p (or (string-prefix-p "#" type) (string-search ".json" type)))
+         (node (json-schema-edit-model-node-at-pointer pointer))
+         (stale (unless ref-p
+                  (seq-remove (lambda (k)
+                                (json-schema-edit-model-keyword-applies-p k (list type)))
+                              (mapcar #'json-schema-edit-model-pair-key
+                                      (json-schema-edit-model-object-pairs node))))))
+    (unless (equal (treesit-node-type node) "object")
+      (user-error "No schema object at point"))
+    (json-schema-edit-edit--with-undo
+      (json-schema-edit-edit-set-member
+       (json-schema-edit-model-node-at-pointer pointer)
+       (if ref-p "$ref" "type") (json-schema-edit-edit--literal type))
+      (json-schema-edit-edit-remove-member
+       (json-schema-edit-model-node-at-pointer pointer) (if ref-p "type" "$ref"))
+      (when (and stale
+                 (y-or-n-p (format-message "Remove keywords that no longer apply (%s)? "
+                                           (string-join stale ", "))))
+        (dolist (k stale)
+          (json-schema-edit-edit-remove-member
+           (json-schema-edit-model-node-at-pointer pointer) k))))))
 
 (defun json-schema-edit-edit--rename-replacements (owner old new)
   "Return replacements renaming the property OLD to NEW in the OWNER node.

@@ -32,23 +32,6 @@ current buffer; nil disables the check."
                  (const :tag "Disabled" nil))
   :group 'json-schema-edit)
 
-(defconst json-schema-edit-lint--keyword-types
-  '(("minLength" "string") ("maxLength" "string") ("pattern" "string")
-    ("format" "string") ("contentEncoding" "string") ("contentMediaType" "string")
-    ("minimum" "number") ("maximum" "number") ("exclusiveMinimum" "number")
-    ("exclusiveMaximum" "number") ("multipleOf" "number")
-    ("items" "array") ("prefixItems" "array") ("additionalItems" "array")
-    ("minItems" "array") ("maxItems" "array") ("uniqueItems" "array")
-    ("contains" "array") ("minContains" "array") ("maxContains" "array")
-    ("unevaluatedItems" "array")
-    ("properties" "object") ("patternProperties" "object")
-    ("additionalProperties" "object") ("required" "object")
-    ("minProperties" "object") ("maxProperties" "object")
-    ("propertyNames" "object") ("dependentRequired" "object")
-    ("dependentSchemas" "object") ("dependencies" "object")
-    ("unevaluatedProperties" "object"))
-  "Keywords that apply only to one type.")
-
 ;;;; Checks
 
 (defun json-schema-edit-lint--diag (node type format &rest args)
@@ -81,28 +64,17 @@ current buffer; nil disables the check."
                            n :error "`%s' is required but not in properties" name))))
                     (json-schema-edit-model--value-children required))))))
 
-(defun json-schema-edit-lint--declared-types (schema)
-  "Return the types declared by `type' of SCHEMA, or nil."
-  (when-let* ((type (json-schema-edit-model-get schema "type")))
-    (pcase (treesit-node-type type)
-      ("string" (list (json-schema-edit-model-string-value type)))
-      ("array" (delq nil (mapcar #'json-schema-edit-model-string-value
-                                 (json-schema-edit-model--value-children type)))))))
-
 (defun json-schema-edit-lint--check-type-keywords (schema)
   "Return diagnostics for keywords of SCHEMA that do not apply to its type."
-  (when-let* ((types (json-schema-edit-lint--declared-types schema)))
-    (let ((types (if (member "integer" types) (cons "number" types) types))
-          result)
-      (dolist (pair (json-schema-edit-model-object-pairs schema))
-        (let* ((key (json-schema-edit-model-pair-key pair))
-               (applies (cadr (assoc key json-schema-edit-lint--keyword-types))))
-          (when (and applies (not (member applies types)))
-            (push (json-schema-edit-lint--diag
-                   (treesit-node-child-by-field-name pair "key") :warning
-                   "`%s' has no effect on type %s" key (string-join types " | "))
-                  result))))
-      (nreverse result))))
+  (when-let* ((types (json-schema-edit-model-declared-types schema)))
+    (delq nil
+          (mapcar (lambda (pair)
+                    (let ((key (json-schema-edit-model-pair-key pair)))
+                      (unless (json-schema-edit-model-keyword-applies-p key types)
+                        (json-schema-edit-lint--diag
+                         (treesit-node-child-by-field-name pair "key") :warning
+                         "`%s' has no effect on type %s" key (string-join types " | ")))))
+                  (json-schema-edit-model-object-pairs schema)))))
 
 (defun json-schema-edit-lint--check-refs ()
   "Return diagnostics for `$ref's that cannot be resolved."
@@ -194,13 +166,14 @@ current buffer; nil disables the check."
 Each is a list (BEG END TYPE MESSAGE) where TYPE is a flymake type."
   (save-restriction
     (widen)
-    (append
+    (json-schema-edit-model-with-cache
+      (append
      (json-schema-edit-lint--check-refs)
      (json-schema-edit-lint--check-unused)
      (mapcan (lambda (entry)
                (append (json-schema-edit-lint--check-required (cdr entry))
                        (json-schema-edit-lint--check-type-keywords (cdr entry))))
-             (json-schema-edit-lint--schemas)))))
+             (json-schema-edit-lint--schemas))))))
 
 (defun json-schema-edit-lint-flymake (report-fn &rest _)
   "Flymake backend reporting `json-schema-edit-lint' to REPORT-FN."

@@ -41,9 +41,10 @@
               (treesit-node-children doc t))))
 
 (defun json-schema-edit-model--value-children (node)
-  "Return the named children of NODE except comments."
-  (seq-remove (lambda (n) (equal (treesit-node-type n) "comment"))
-              (treesit-node-children node t)))
+  "Return the named children of NODE except comments; nil for no NODE."
+  (when node
+    (seq-remove (lambda (n) (equal (treesit-node-type n) "comment"))
+                (treesit-node-children node t))))
 
 (defun json-schema-edit-model-string-value (node)
   "Return the decoded string of the string NODE, or nil."
@@ -54,8 +55,12 @@
 
 (defun json-schema-edit-model-pair-key (pair)
   "Return the decoded key of PAIR."
-  (json-schema-edit-model-string-value
-   (treesit-node-child-by-field-name pair "key")))
+  (let* ((key (treesit-node-child-by-field-name pair "key"))
+         (text (treesit-node-text key t)))
+    (if (and (equal (treesit-node-type key) "string")
+             (not (string-search "\\" text)))
+        (substring text 1 -1)
+      (json-schema-edit-model-string-value key))))
 
 (defun json-schema-edit-model-pair-value (pair)
   "Return the value node of PAIR."
@@ -67,12 +72,37 @@
     (seq-filter (lambda (n) (equal (treesit-node-type n) "pair"))
                 (treesit-node-children node t))))
 
+(defvar json-schema-edit-model--members-cache nil
+  "Hash table from (BUFFER . START) of an object to its members, or nil.
+Bound by `json-schema-edit-model-with-cache'.")
+
+(defmacro json-schema-edit-model-with-cache (&rest body)
+  "Evaluate BODY with member lookups of objects cached.
+BODY must not modify the buffers it reads."
+  (declare (indent 0) (debug t))
+  `(let ((json-schema-edit-model--members-cache
+          (or json-schema-edit-model--members-cache (make-hash-table :test #'equal))))
+     ,@body))
+
+(defun json-schema-edit-model--members (node)
+  "Return an alist of (KEY . VALUE-NODE) for the object NODE."
+  (mapcar (lambda (p) (cons (json-schema-edit-model-pair-key p)
+                            (json-schema-edit-model-pair-value p)))
+          (json-schema-edit-model-object-pairs node)))
+
 (defun json-schema-edit-model-get (node key)
   "Return the value node for KEY in the object NODE, or nil."
-  (when-let* ((pair (seq-find (lambda (p)
-                                (equal (json-schema-edit-model-pair-key p) key))
-                              (json-schema-edit-model-object-pairs node))))
-    (json-schema-edit-model-pair-value pair)))
+  (when (and node (equal (treesit-node-type node) "object"))
+    (if json-schema-edit-model--members-cache
+        (let* ((id (cons (current-buffer) (treesit-node-start node)))
+               (members (or (gethash id json-schema-edit-model--members-cache)
+                            (puthash id (json-schema-edit-model--members node)
+                                     json-schema-edit-model--members-cache))))
+          (cdr (assoc key members)))
+      (when-let* ((pair (seq-find (lambda (p)
+                                    (equal (json-schema-edit-model-pair-key p) key))
+                                  (json-schema-edit-model-object-pairs node))))
+        (json-schema-edit-model-pair-value pair)))))
 
 (defun json-schema-edit-model-get-string (node key)
   "Return the string value for KEY in the object NODE, or nil."
@@ -392,6 +422,45 @@ Remote references (http etc.) are not resolved."
                              default-directory))))
 
 ;;;; Summaries
+
+(defun json-schema-edit-model-root-name ()
+  "Return a name for the root schema: its title, or the file's base name."
+  (or (json-schema-edit-model-get-string (json-schema-edit-model-root) "title")
+      (and buffer-file-name
+           (file-name-base (string-remove-suffix ".schema" (file-name-base buffer-file-name))))
+      "root"))
+
+(defconst json-schema-edit-model-keyword-types
+  '(("minLength" "string") ("maxLength" "string") ("pattern" "string")
+    ("format" "string") ("contentEncoding" "string") ("contentMediaType" "string")
+    ("minimum" "number") ("maximum" "number") ("exclusiveMinimum" "number")
+    ("exclusiveMaximum" "number") ("multipleOf" "number")
+    ("items" "array") ("prefixItems" "array") ("additionalItems" "array")
+    ("minItems" "array") ("maxItems" "array") ("uniqueItems" "array")
+    ("contains" "array") ("minContains" "array") ("maxContains" "array")
+    ("unevaluatedItems" "array")
+    ("properties" "object") ("patternProperties" "object")
+    ("additionalProperties" "object") ("required" "object")
+    ("minProperties" "object") ("maxProperties" "object")
+    ("propertyNames" "object") ("dependentRequired" "object")
+    ("dependentSchemas" "object") ("dependencies" "object")
+    ("unevaluatedProperties" "object"))
+  "Keywords that apply only to one type.")
+
+(defun json-schema-edit-model-declared-types (node)
+  "Return the types declared by `type' of the schema NODE, or nil."
+  (when-let* ((type (json-schema-edit-model-get node "type")))
+    (pcase (treesit-node-type type)
+      ("string" (list (json-schema-edit-model-string-value type)))
+      ("array" (delq nil (mapcar #'json-schema-edit-model-string-value
+                                 (json-schema-edit-model--value-children type)))))))
+
+(defun json-schema-edit-model-keyword-applies-p (keyword types)
+  "Return non-nil if KEYWORD has an effect on a value of one of TYPES.
+Keywords not tied to a type always apply."
+  (let ((applies (cadr (assoc keyword json-schema-edit-model-keyword-types))))
+    (or (null applies)
+        (member applies (if (member "integer" types) (cons "number" types) types)))))
 
 (defun json-schema-edit-model-type-string (node)
   "Return a short type description of the schema NODE, or nil."

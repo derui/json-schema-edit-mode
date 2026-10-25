@@ -21,6 +21,7 @@
 ;; - schema-specific lint as a flymake backend
 ;; - adding and renaming properties with `required' kept in sync, and
 ;;   renaming definitions with every `$ref' rewritten
+;; - an outline of the data shape (`C-c C-s l'), also used by imenu
 ;;
 ;; Completion and metaschema validation are left to an LSP server such
 ;; as vscode-json-languageserver.
@@ -35,6 +36,7 @@
 (require 'json-schema-edit-xref)
 (require 'json-schema-edit-edit)
 (require 'json-schema-edit-lint)
+(require 'json-schema-edit-outline)
 
 (defcustom json-schema-edit-breadcrumb-style 'instance
   "How the header line shows the location at point.
@@ -63,18 +65,11 @@ schema; nil disables the header line."
         (car (last (split-string ref "/"))))
       (format "#%d" (1+ index))))
 
-(defun json-schema-edit--root-name ()
-  "Return the name of the root schema."
-  (or (json-schema-edit-model-get-string (json-schema-edit-model-root) "title")
-      (and buffer-file-name
-           (file-name-base (string-remove-suffix ".schema" (file-name-base buffer-file-name))))
-      "root"))
-
 (defun json-schema-edit-instance-path (segments)
   "Convert schema pointer SEGMENTS to a list of instance path labels.
 The first label names the root schema, or the definition when SEGMENTS
 point into `$defs' / `definitions'."
-  (let ((labels (list (json-schema-edit--root-name)))
+  (let ((labels (list (json-schema-edit-model-root-name)))
         (node (json-schema-edit-model-root)))
     (while segments
       (let ((seg (pop segments)))
@@ -178,7 +173,10 @@ point into `$defs' / `definitions'."
 
 (defvar json-schema-edit-mode-map
   (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-s l") #'json-schema-edit-outline)
     (define-key map (kbd "C-c C-s a") #'json-schema-edit-add-property)
+    (define-key map (kbd "C-c C-s *") #'json-schema-edit-toggle-required)
+    (define-key map (kbd "C-c C-s t") #'json-schema-edit-change-type)
     (define-key map (kbd "C-c C-s r") #'json-schema-edit-rename-property)
     (define-key map (kbd "C-c C-s d") #'json-schema-edit-rename-definition)
     (define-key map (kbd "C-c C-s b") #'json-schema-edit-toggle-breadcrumb-style)
@@ -207,6 +205,7 @@ point into `$defs' / `definitions'."
         (add-hook 'eldoc-documentation-functions
                   #'json-schema-edit-xref-eldoc-function nil t)
         (add-hook 'flymake-diagnostic-functions #'json-schema-edit-lint-flymake nil t)
+        (setq-local imenu-create-index-function #'json-schema-edit-outline-imenu-index)
         (setq-local header-line-format
                     (if (listp header-line-format)
                         (cons json-schema-edit--header-line-format
@@ -215,6 +214,8 @@ point into `$defs' / `definitions'."
     (remove-hook 'xref-backend-functions #'json-schema-edit-xref-backend t)
     (remove-hook 'eldoc-documentation-functions #'json-schema-edit-xref-eldoc-function t)
     (remove-hook 'flymake-diagnostic-functions #'json-schema-edit-lint-flymake t)
+    (remove-hook 'after-change-functions #'json-schema-edit-outline--schedule t)
+    (kill-local-variable 'imenu-create-index-function)
     (setq-local header-line-format
                 (if (listp header-line-format)
                     (delq nil (remq json-schema-edit--header-line-format header-line-format))
