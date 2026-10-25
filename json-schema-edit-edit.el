@@ -336,10 +336,7 @@ The pointer ends with \"properties\" and the property name."
     (while (and segments
                 (not (and
                       (>= (length segments) 2)
-                      (eq
-                       (json-schema-edit-model-keyword
-                        (car (last segments 2)))
-                       'properties))))
+                      (eq (car (last segments 2)) 'properties))))
       (setq segments (butlast segments)))
     segments))
 
@@ -408,6 +405,8 @@ one holding the property at point)."
      (list owner name
            (json-schema-edit-edit--read-type)
            (y-or-n-p "Required? "))))
+  (setq owner (json-schema-edit-model-canonical-pointer owner)
+        name (json-schema-edit-model-key-name name))
   (when (string-empty-p name) (user-error "Empty property name"))
   (let ((props
          (json-schema-edit-edit--node (append owner '(properties)))))
@@ -446,7 +445,8 @@ one holding the property at point)."
 
 (defun json-schema-edit-edit-required-p (pointer)
   "Return non-nil if the property at POINTER is listed in `required'."
-  (let ((owner (json-schema-edit-edit--node (butlast pointer 2))))
+  (let* ((pointer (json-schema-edit-model-canonical-pointer pointer))
+         (owner (json-schema-edit-edit--node (butlast pointer 2))))
     (member
      (car (last pointer))
      (json-schema-edit-edit--names
@@ -461,6 +461,7 @@ POINTER ends with \"properties\" and the property name.  An empty
     (or
      (json-schema-edit-edit--property-pointer)
      (user-error "No property at point"))))
+  (setq pointer (json-schema-edit-model-canonical-pointer pointer))
   (let* ((owner-ptr (butlast pointer 2))
          (name (car (last pointer))))
     (json-schema-edit-edit--with-undo
@@ -485,6 +486,7 @@ Keywords that no longer apply are listed and removed on confirmation."
    (list
     (json-schema-edit-edit-schema-pointer)
     (json-schema-edit-edit--read-type)))
+  (setq pointer (json-schema-edit-model-canonical-pointer pointer))
   (let* ((ref-p
           (or (string-prefix-p "#" type) (string-search ".json" type)))
          (node (json-schema-edit-edit--node pointer))
@@ -503,7 +505,8 @@ Keywords that no longer apply are listed and removed on confirmation."
            (and stale
                 (y-or-n-p
                  (format-message "Remove keywords that no longer apply (%s)? "
-                                 (string-join stale ", "))))))
+                                 (mapconcat #'json-schema-edit-model-key-name
+                                            stale ", "))))))
       (json-schema-edit-edit--with-undo
         (json-schema-edit-edit-set-member
          (json-schema-edit-edit--node pointer)
@@ -562,6 +565,7 @@ POINTER ends with \"properties\" and the current name."
            (read-string
             (format "Rename property %s to: " (car (last pointer)))
             (car (last pointer))))))
+  (setq pointer (json-schema-edit-model-canonical-pointer pointer))
   (let* ((old (car (last pointer)))
          (owner-ptr (butlast pointer 2))
          (owner (json-schema-edit-edit--node owner-ptr)))
@@ -640,6 +644,7 @@ first."
               (format "Remove property %s? " (car (last pointer))))
        (user-error "Aborted"))
      (list pointer)))
+  (setq pointer (json-schema-edit-model-canonical-pointer pointer))
   (let ((owner-ptr (butlast pointer 2))
         (name (car (last pointer))))
     (json-schema-edit-edit--with-undo
@@ -652,11 +657,10 @@ first."
   "Move the property at POINTER by DELTA (-1 or 1) within its object.
 POINTER ends with \"properties\" and the property name; only the
 properties of an object can be reordered.  Return POINTER."
+  (setq pointer (json-schema-edit-model-canonical-pointer pointer))
   (unless (and
            (>= (length pointer) 2)
-           (eq
-            (json-schema-edit-model-keyword (car (last pointer 2)))
-            'properties))
+           (eq (car (last pointer 2)) 'properties))
     (user-error "Only the properties of an object can be moved"))
   (let* ((props
           (json-schema-edit-edit--node
@@ -721,10 +725,7 @@ used."
            (json-schema-edit-model-pointer-at model pos))))
     (when-let* (((>= (length segments) 2))
                 (keyword
-                 (car
-                  (memq
-                   (json-schema-edit-model-keyword (car segments))
-                   '($defs definitions)))))
+                 (car (memq (car segments) '($defs definitions)))))
       (list keyword (nth 1 segments)))))
 
 (defun json-schema-edit-edit--same-file-p (a b)
@@ -737,11 +738,12 @@ VALUE is a `$ref' string of MODEL; it is rewritten when it resolves into
 PREFIX of FILE (nil meaning MODEL itself) through a JSON Pointer."
   (pcase-let ((`(,resource . ,fragment)
                (json-schema-edit-model-split-ref value))
-              (prefix (json-schema-edit-model-normalize-segments prefix))
+              (prefix (json-schema-edit-model-canonical-pointer prefix))
               (self (json-schema-edit-model-file model)))
     (when (and fragment (string-prefix-p "/" fragment))
       (let ((segments
-             (json-schema-edit-model-pointer-decode fragment))
+             (json-schema-edit-model-canonical-pointer
+              (json-schema-edit-model-pointer-decode fragment)))
             (res (json-schema-edit-model-resolve model value)))
         (when (and res
                    (json-schema-edit-edit--same-file-p
@@ -749,10 +751,7 @@ PREFIX of FILE (nil meaning MODEL itself) through a JSON Pointer."
                     (or file self))
                    (equal (seq-take segments (length prefix)) prefix)
                    (equal
-                    (seq-take
-                     (json-schema-edit-model-normalize-segments
-                      (map-elt res :pointer))
-                     (length prefix))
+                    (seq-take (map-elt res :pointer) (length prefix))
                     prefix))
           (concat resource
                   (json-schema-edit-model-pointer-fragment
@@ -796,7 +795,7 @@ PREFIX of FILE (nil meaning MODEL itself) through a JSON Pointer."
 
 (defun json-schema-edit-rename-definition (definition new)
   "Rename DEFINITION, a list (KEYWORD NAME), to NEW.
-KEYWORD is a symbol or a string.
+KEYWORD is a symbol, or a string naming one.
 Every `$ref' to it in this buffer is rewritten.  When other schema
 files refer to it, you are asked whether to update them as well; they
 are visited and modified but not saved."
@@ -810,7 +809,7 @@ are visited and modified but not saved."
             (format "Rename definition %s to: " (nth 1 def))
             (nth 1 def)))))
   (pcase-let* ((`(,keyword ,old)
-                definition)
+                (json-schema-edit-model-canonical-pointer definition))
                (prefix (list keyword old))
                (new-prefix (list keyword new))
                (model (json-schema-edit-edit--model))

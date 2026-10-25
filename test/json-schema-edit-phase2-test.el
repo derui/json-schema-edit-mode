@@ -199,7 +199,7 @@
     (json-schema-edit-phase2-test--goto "\"minLength\"")
     (should (null (json-schema-edit-edit--owner-pointer)))
     (json-schema-edit-phase2-test--goto "\"city\": {")
-    (should (equal (json-schema-edit-edit--owner-pointer) '("$defs" "Address")))))
+    (should (equal (json-schema-edit-edit--owner-pointer) '($defs "Address")))))
 
 (ert-deftest json-schema-edit-phase2-test-add-property-undo ()
   (json-schema-edit-phase2-test--with-json "{\"properties\": {}}"
@@ -219,7 +219,7 @@
         \"dependentRequired\": {\"a\": [\"b\"], \"b\": [\"a\"]},
         \"examples\": [{\"a\": 1}]}"
     (json-schema-edit-phase2-test--goto "\"a\": {}")
-    (should (equal (json-schema-edit-edit--property-pointer) '("properties" "a")))
+    (should (equal (json-schema-edit-edit--property-pointer) '(properties "a")))
     (json-schema-edit-rename-property '("properties" "a") "name")
     (should (equal (json-schema-edit-phase2-test--parse)
                    '((properties (name) (b) (aa))

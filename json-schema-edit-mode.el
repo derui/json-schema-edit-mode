@@ -75,11 +75,12 @@ schema; nil disables the header line."
   "Convert schema pointer SEGMENTS of MODEL to a list of instance path labels.
 The first label names the root schema, or the definition when SEGMENTS
 point into `$defs' / `definitions'."
-  (let ((labels (list (json-schema-edit-model-root-name model)))
+  (let ((segments (json-schema-edit-model-canonical-pointer segments))
+        (labels (list (json-schema-edit-model-root-name model)))
         (node (json-schema-edit-model-root model)))
     (while segments
       (let ((seg (pop segments)))
-        (pcase (json-schema-edit-model-keyword seg)
+        (pcase seg
           ((or '$defs 'definitions)
            (when segments
              (let ((name (pop segments)))
@@ -121,11 +122,10 @@ point into `$defs' / `definitions'."
              (let* ((idx (pop segments))
                     (branch
                      (json-schema-edit-model-lookup node
-                                                    (list seg idx)))
-                    (i (if (integerp idx) idx (string-to-number idx))))
+                                                    (list seg idx))))
                (push
                 (format "‹%s: %s›" seg
-                        (json-schema-edit--branch-name branch i))
+                        (json-schema-edit--branch-name branch idx))
                 labels)
                (setq node branch))
              (setq seg nil))))
@@ -138,9 +138,7 @@ point into `$defs' / `definitions'."
   (let ((n (length segments)))
     (when (and
            (>= n 2)
-           (eq
-            (json-schema-edit-model-keyword (nth (- n 2) segments))
-            'properties))
+           (eq (nth (- n 2) segments) 'properties))
       (let* ((owner
               (json-schema-edit-model-node-at-pointer model
                                                       (butlast segments 2)))

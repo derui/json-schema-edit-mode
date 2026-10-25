@@ -45,9 +45,7 @@
   "Split the members of NODE into (ANNOTATIONS . OTHERS)."
   (let (ann rest)
     (dolist (m (json-schema-edit-edit-members node))
-      (if (memq
-           (json-schema-edit-model-keyword (car m))
-           json-schema-edit-transform--annotations)
+      (if (memq (car m) json-schema-edit-transform--annotations)
           (push m ann)
         (push m rest)))
     (cons (nreverse ann) (nreverse rest))))
@@ -136,11 +134,7 @@ unwrapped from, anyOf with {\"type\": \"null\"}."
     (json-schema-edit-edit--with-undo
       (if (and
            (= (length others) 1)
-           (equal
-            (mapcar
-             (lambda (m) (json-schema-edit-model-keyword (car m)))
-             rest)
-            (list comb)))
+           (equal (mapcar #'car rest) (list comb)))
           ;; Only the combinator besides annotations: unwrap.
           (let ((inner (json-schema-edit-edit-members (car others))))
             (json-schema-edit-edit-replace-node
@@ -176,6 +170,7 @@ unwrapped from, anyOf with {\"type\": \"null\"}."
                               json-schema-edit-transform--combinators)
                       nil t
                       nil nil "oneOf"))))
+  (setq keyword (json-schema-edit-model-keyword keyword))
   (json-schema-edit-transform--wrap
    pointer
    (lambda (inner)
@@ -195,6 +190,7 @@ The schema is replaced by a `$ref' to it."
            (read-string "Definition name: "
                         (capitalize
                          (format "%s" (car (last pointer))))))))
+  (setq pointer (json-schema-edit-model-canonical-pointer pointer))
   (let* ((model (json-schema-edit-edit--model))
          (kw (json-schema-edit-model-defs-keyword model))
          (node (json-schema-edit-transform--node pointer))
@@ -208,10 +204,7 @@ The schema is replaced by a `$ref' to it."
             kw)
            name)
       (user-error "Definition %s already exists" name))
-    (when (equal
-           (json-schema-edit-model-normalize-segments
-            (seq-take pointer 2))
-           (json-schema-edit-model-normalize-segments (list kw name)))
+    (when (equal (seq-take pointer 2) (list kw name))
       (user-error "The schema is that definition"))
     (json-schema-edit-edit--with-undo
       (json-schema-edit-edit-replace-node
@@ -233,6 +226,7 @@ The schema is replaced by a `$ref' to it."
 Keywords next to the `$ref' are kept and win over the target's.  When
 no other `$ref' uses the definition, you are asked whether to delete it."
   (interactive (list (json-schema-edit-edit-schema-pointer)))
+  (setq pointer (json-schema-edit-model-canonical-pointer pointer))
   (let* ((model (json-schema-edit-edit--model))
          (node (json-schema-edit-transform--node pointer))
          (ref
@@ -243,16 +237,12 @@ no other `$ref' uses the definition, you are asked whether to delete it."
          (target-ptr (map-elt res :pointer)))
     (unless (and res (not (map-elt res :file)))
       (user-error "Only a $ref into this file can be inlined"))
-    (when (equal
-           (json-schema-edit-model-normalize-segments
-            (seq-take pointer (length target-ptr)))
-           (json-schema-edit-model-normalize-segments target-ptr))
+    (when (equal (seq-take pointer (length target-ptr)) target-ptr)
       (user-error "The $ref points to a schema containing it"))
     (let* ((target (map-elt res :node))
            (own
             (seq-remove
-             (lambda (m)
-               (eq (json-schema-edit-model-keyword (car m)) '$ref))
+             (lambda (m) (eq (car m) '$ref))
              (json-schema-edit-edit-members node)))
            (members
             (append own
@@ -276,9 +266,7 @@ no other `$ref' uses the definition, you are asked whether to delete it."
             (and
              (= others 1)
              (= (length target-ptr) 2)
-             (memq
-              (json-schema-edit-model-keyword (car target-ptr))
-              '($defs definitions))
+             (memq (car target-ptr) '($defs definitions))
              (y-or-n-p
               (format "Delete the definition %s, now unused? "
                       (cadr target-ptr))))))
@@ -302,7 +290,9 @@ no other `$ref' uses the definition, you are asked whether to delete it."
   "Return (OWNER-POINTER KEYWORD INDEX) of the combinator at POINTER.
 KEYWORD is a symbol.  INDEX is the branch POINTER is in, or nil when
 POINTER is the owner."
-  (let ((pointer (or pointer (json-schema-edit-edit-schema-pointer)))
+  (let ((pointer
+         (json-schema-edit-model-canonical-pointer
+          (or pointer (json-schema-edit-edit-schema-pointer))))
         found)
     ;; The innermost branch containing POINTER.
     (let ((p pointer))
@@ -312,9 +302,8 @@ POINTER is the owner."
                       ((integerp (nth (1- n) p)))
                       (kw
                        (car
-                        (memq
-                         (json-schema-edit-model-keyword (nth (- n 2) p))
-                         json-schema-edit-transform--combinators))))
+                        (memq (nth (- n 2) p)
+                              json-schema-edit-transform--combinators))))
             (setq found
                   (list (butlast p 2) kw (nth (1- n) p)))))
         (setq p (butlast p))))
@@ -342,6 +331,8 @@ For a discriminated union the discriminating value is asked and the
 branch fixes it with `const' and `required'; otherwise a type is asked."
   (interactive
    (seq-take (json-schema-edit-transform--combinator-at) 2))
+  (setq owner (json-schema-edit-model-canonical-pointer owner)
+        keyword (json-schema-edit-model-keyword keyword))
   (let* ((node (json-schema-edit-edit--node owner))
          (prop
           (json-schema-edit-outline-discriminator
@@ -385,6 +376,8 @@ branch fixes it with `const' and `required'; otherwise a type is asked."
    (pcase-let ((`(,owner ,kw ,i)
                 (json-schema-edit-transform--combinator-at)))
      (list owner kw (or i (user-error "Not in a branch")))))
+  (setq owner (json-schema-edit-model-canonical-pointer owner)
+        keyword (json-schema-edit-model-keyword keyword))
   (let ((branches
          (json-schema-edit-transform--branch-nodes owner keyword)))
     (json-schema-edit-edit--with-undo
@@ -400,6 +393,8 @@ branch fixes it with `const' and `required'; otherwise a type is asked."
    (pcase-let ((`(,owner ,kw ,i)
                 (json-schema-edit-transform--combinator-at)))
      (list owner kw (or i (user-error "Not in a branch")))))
+  (setq owner (json-schema-edit-model-canonical-pointer owner)
+        keyword (json-schema-edit-model-keyword keyword))
   (let* ((branches
           (json-schema-edit-transform--branch-nodes owner keyword))
          (branch
@@ -415,6 +410,8 @@ branch fixes it with `const' and `required'; otherwise a type is asked."
 
 (defun json-schema-edit-move-branch (owner keyword index delta)
   "Move the branch INDEX of KEYWORD in the schema at OWNER by DELTA (-1 or 1)."
+  (setq owner (json-schema-edit-model-canonical-pointer owner)
+        keyword (json-schema-edit-model-keyword keyword))
   (let* ((branches
           (json-schema-edit-transform--branch-nodes owner keyword))
          (other (+ index delta)))
@@ -477,6 +474,9 @@ branch fixes it with `const' and `required'; otherwise a type is asked."
              (mapcar #'symbol-name
                      (remq kw json-schema-edit-transform--combinators))
              nil t)))))
+  (setq owner (json-schema-edit-model-canonical-pointer owner)
+        keyword (json-schema-edit-model-keyword keyword)
+        new (json-schema-edit-model-keyword new))
   (let* ((node (json-schema-edit-edit--node owner))
          (effect
           (cdr
@@ -507,6 +507,8 @@ made required.  A branch that is a local `$ref' is edited in its target."
    (pcase-let ((`(,owner ,kw ,_)
                 (json-schema-edit-transform--combinator-at)))
      (list owner kw (read-string "Discriminating property: "))))
+  (setq owner (json-schema-edit-model-canonical-pointer owner)
+        keyword (json-schema-edit-model-keyword keyword))
   (when (string-empty-p prop) (user-error "Empty property name"))
   (let* ((branches
           (json-schema-edit-outline-branches
@@ -567,6 +569,8 @@ A property moved is required outside when it was required in every
 branch.  Only inline branches are considered."
   (interactive
    (seq-take (json-schema-edit-transform--combinator-at) 2))
+  (setq owner (json-schema-edit-model-canonical-pointer owner)
+        keyword (json-schema-edit-model-keyword keyword))
   (let* ((branches
           (json-schema-edit-transform--branch-nodes owner keyword))
          (props-of

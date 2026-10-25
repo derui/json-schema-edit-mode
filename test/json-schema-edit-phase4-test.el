@@ -144,6 +144,17 @@
     (should (equal (json-schema-edit-transform--combinator-at '("oneOf" 1 "properties" "id"))
                    '(() oneOf 1)))))
 
+(ert-deftest json-schema-edit-phase4-test-keyword-as-string ()
+  "Commands take keywords given as strings, as typed by the user."
+  (json-schema-edit-phase4-test--with-json json-schema-edit-phase4-test--union
+    (should (equal (json-schema-edit-duplicate-branch nil "oneOf" 0) '(oneOf 1)))
+    (should (equal (json-schema-edit-switch-combinator nil "oneOf" "anyOf") '(anyOf)))
+    (should (equal (mapcar #'car (json-schema-edit-phase4-test--parse)) '(anyOf))))
+  (json-schema-edit-phase4-test--with-json "{\"properties\": {\"a\": {\"type\": \"string\"}}}"
+    (json-schema-edit-wrap-combinator '("properties" "a") "anyOf")
+    (should (equal (json-schema-edit-phase4-test--parse)
+                   '((properties (a (anyOf ((type . "string"))))))))))
+
 (ert-deftest json-schema-edit-phase4-test-add-branch-discriminated ()
   (json-schema-edit-phase4-test--with-json json-schema-edit-phase4-test--union
     (json-schema-edit-phase4-test--answers '("c")

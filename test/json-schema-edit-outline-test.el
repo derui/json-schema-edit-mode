@@ -141,10 +141,9 @@ BODY runs in the outline buffer; `source' is bound to the schema buffer."
                      "├─ id * | string  (uuid)")))
     ;; Inherited lines point into the base definition.
     (json-schema-edit-outline-test--goto "createdAt")
-    (should (equal (json-schema-edit-model-normalize-segments
-                    (json-schema-edit-outline-entry-pointer
-                     (get-text-property (point) 'json-schema-edit-outline-entry)))
-                   '("$defs" "Timestamps" "properties" "createdAt")))))
+    (should (equal (json-schema-edit-outline-entry-pointer
+                    (get-text-property (point) 'json-schema-edit-outline-entry))
+                   '($defs "Timestamps" properties "createdAt")))))
 
 (ert-deftest json-schema-edit-outline-test-cycle ()
   (with-temp-buffer
@@ -355,10 +354,9 @@ BODY runs in the outline buffer; `source' is bound to the schema buffer."
       (save-window-excursion
         (json-schema-edit-outline)
         (with-current-buffer (buffer-local-value 'json-schema-edit-outline--buffer source)
-          (should (equal (json-schema-edit-model-normalize-segments
-                          (json-schema-edit-outline-entry-pointer
-                           (get-text-property (point) 'json-schema-edit-outline-entry)))
-                         '("$defs" "Address" "properties" "zip"))))))))
+          (should (equal (json-schema-edit-outline-entry-pointer
+                          (get-text-property (point) 'json-schema-edit-outline-entry))
+                         '($defs "Address" properties "zip"))))))))
 
 (ert-deftest json-schema-edit-outline-test-imenu ()
   (json-schema-edit-outline-test--with-outline "user.schema.json"

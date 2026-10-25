@@ -117,8 +117,7 @@ fragment of the schema at point."
   "Return a key identifying TARGET for comparison."
   (cons
    (or (map-elt target :file) (map-elt target :buffer))
-   (json-schema-edit-model-normalize-segments
-    (map-elt target :pointer))))
+   (map-elt target :pointer)))
 
 (defun json-schema-edit-xref--references-in (model key)
   "Return xref items for the `$ref's of MODEL that resolve to KEY."

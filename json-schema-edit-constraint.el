@@ -284,9 +284,12 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
                             (text 'transient-value)
                             (t 'shadow)))))
 
-(defun json-schema-edit-constraint--desc (label keyword &optional text)
-  "Return a menu description of LABEL for KEYWORD showing TEXT."
-  (format "%-13s %s" label (json-schema-edit-constraint--show keyword text)))
+(defun json-schema-edit-constraint--desc (keyword &optional text label)
+  "Return a menu description of KEYWORD, a symbol, showing TEXT.
+LABEL names KEYWORD in the menu, the name of KEYWORD by default."
+  (format "%-13s %s"
+          (or label (symbol-name keyword))
+          (json-schema-edit-constraint--show keyword text)))
 
 (defmacro json-schema-edit-constraint--with-errors (&rest body)
   "Evaluate BODY, turning a `user-error' into a message so the menu stays."
@@ -318,7 +321,7 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
   "Set `pattern', edited without the JSON string escapes."
   :transient t
   :description (lambda () (json-schema-edit-constraint--desc
-                           "pattern" 'pattern
+                           'pattern
                            (json-schema-edit-constraint--string 'pattern)))
   (interactive)
   (let ((input (read-string "pattern (ECMA-262, empty to remove): "
@@ -330,7 +333,7 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
   "Set `format'."
   :transient t
   :description (lambda () (json-schema-edit-constraint--desc
-                           "format" 'format (json-schema-edit-constraint--string 'format)))
+                           'format (json-schema-edit-constraint--string 'format)))
   (interactive)
   (let ((input (completing-read "format (empty to remove): "
                                 json-schema-edit-constraint-formats nil nil
@@ -341,7 +344,7 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
 (transient-define-suffix json-schema-edit-constraint-multiple-of ()
   "Set `multipleOf'."
   :transient t
-  :description (lambda () (json-schema-edit-constraint--desc "multipleOf" 'multipleOf))
+  :description (lambda () (json-schema-edit-constraint--desc 'multipleOf))
   (interactive)
   (json-schema-edit-constraint--with-errors
     (let ((input (string-trim (read-string "multipleOf (empty to remove): "
@@ -356,7 +359,7 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
 (transient-define-suffix json-schema-edit-constraint-unique ()
   "Toggle `uniqueItems'."
   :transient t
-  :description (lambda () (json-schema-edit-constraint--desc "uniqueItems" 'uniqueItems))
+  :description (lambda () (json-schema-edit-constraint--desc 'uniqueItems))
   (interactive)
   (json-schema-edit-constraint--set
    'uniqueItems (unless (equal (json-schema-edit-constraint--current 'uniqueItems) "true")
@@ -365,7 +368,7 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
 (transient-define-suffix json-schema-edit-constraint-items ()
   "Set the type of `items'."
   :transient t
-  :description (lambda () (json-schema-edit-constraint--desc "items" 'items))
+  :description (lambda () (json-schema-edit-constraint--desc 'items))
   (interactive)
   (let ((type (json-schema-edit-constraint--in-buffer (json-schema-edit-edit--read-type))))
     (json-schema-edit-constraint--set
@@ -375,7 +378,7 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
   "Toggle `additionalProperties' between false and absent."
   :transient t
   :description (lambda () (json-schema-edit-constraint--desc
-                           "additional" 'additionalProperties))
+                           'additionalProperties nil "additional"))
   (interactive)
   (json-schema-edit-constraint--set
    'additionalProperties
@@ -385,7 +388,7 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
 (transient-define-suffix json-schema-edit-constraint-property-names ()
   "Set the pattern of `propertyNames'."
   :transient t
-  :description (lambda () (json-schema-edit-constraint--desc "propertyNames" 'propertyNames))
+  :description (lambda () (json-schema-edit-constraint--desc 'propertyNames))
   (interactive)
   (let ((input (read-string "Pattern of property names (empty to remove): ")))
     (json-schema-edit-constraint--set
@@ -412,21 +415,21 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
 (transient-define-suffix json-schema-edit-constraint-const ()
   "Set `const'."
   :transient t
-  :description (lambda () (json-schema-edit-constraint--desc "const" 'const))
+  :description (lambda () (json-schema-edit-constraint--desc 'const))
   (interactive)
   (json-schema-edit-constraint--read-value 'const))
 
 (transient-define-suffix json-schema-edit-constraint-default ()
   "Set `default'."
   :transient t
-  :description (lambda () (json-schema-edit-constraint--desc "default" 'default))
+  :description (lambda () (json-schema-edit-constraint--desc 'default))
   (interactive)
   (json-schema-edit-constraint--read-value 'default))
 
 (transient-define-suffix json-schema-edit-constraint-description ()
   "Set `description'."
   :transient t
-  :description (lambda () (json-schema-edit-constraint--desc "description" 'description))
+  :description (lambda () (json-schema-edit-constraint--desc 'description))
   (interactive)
   (let ((input (read-string "description (empty to remove): "
                             (json-schema-edit-constraint--string 'description))))
@@ -440,7 +443,7 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
                  (let ((n (length (json-schema-edit-constraint--elements
                                    (or (json-schema-edit-constraint--current 'examples) "")))))
                    (json-schema-edit-constraint--desc
-                    "examples" 'examples
+                    'examples
                     (and (json-schema-edit-constraint--current 'examples)
                          (format "%d item(s)" n)))))
   (interactive)
@@ -471,7 +474,7 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
 
 (transient-define-suffix json-schema-edit-constraint-enum ()
   "Edit `enum' one value per line in a separate buffer."
-  :description (lambda () (json-schema-edit-constraint--desc "enum" 'enum))
+  :description (lambda () (json-schema-edit-constraint--desc 'enum))
   (interactive)
   (json-schema-edit-enum-edit))
 
@@ -479,7 +482,7 @@ TYPE (any type when TYPE is nil).  Signal `user-error' when it is not."
   "Set `title'."
   :transient t
   :description (lambda () (json-schema-edit-constraint--desc
-                           "title" 'title (json-schema-edit-constraint--string 'title)))
+                           'title (json-schema-edit-constraint--string 'title)))
   (interactive)
   (let ((input (read-string "title (empty to remove): "
                             (json-schema-edit-constraint--string 'title))))
@@ -534,7 +537,7 @@ They are symbols."
                       (and (not (json-schema-edit-model-keyword-applies-p k types))
                            (not (and (assq k json-schema-edit-constraint--pending)
                                      (null (cdr (assq k json-schema-edit-constraint--pending)))))))
-                    (mapcar (lambda (m) (intern (json-schema-edit-model-node-key m)))
+                    (mapcar #'json-schema-edit-model-node-key
                             (json-schema-edit-model-members
                              (json-schema-edit-constraint--node))))))))
 
@@ -619,7 +622,9 @@ at a time; opening it for another schema discards pending changes,
 after saying so."
   (interactive)
   (let ((buffer (or buffer (current-buffer)))
-        (pointer (or pointer (json-schema-edit-edit-schema-pointer))))
+        (pointer
+         (json-schema-edit-model-canonical-pointer
+          (or pointer (json-schema-edit-edit-schema-pointer)))))
     (when (and json-schema-edit-constraint--pending
                (not resume)
                (or (not (eq json-schema-edit-constraint--buffer buffer))

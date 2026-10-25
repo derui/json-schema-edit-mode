@@ -70,9 +70,9 @@
   (json-schema-edit-test--with-fixture "user.schema.json"
     (json-schema-edit-test--goto "\"zip\": {")
     (should (equal (json-schema-edit-model-pointer-at (json-schema-edit-model-current) (point))
-                   '("$defs" "Address" "properties" "zip")))
+                   '($defs "Address" properties "zip")))
     (json-schema-edit-test--goto "\"name\"]")
-    (should (equal (json-schema-edit-model-pointer-at (json-schema-edit-model-current) (point)) '("required" 1)))))
+    (should (equal (json-schema-edit-model-pointer-at (json-schema-edit-model-current) (point)) '(required 1)))))
 
 (ert-deftest json-schema-edit-test-node-at-pointer ()
   (json-schema-edit-test--with-fixture "user.schema.json"
@@ -111,28 +111,55 @@
                  "{\"$defs\": {\"A\": {\"$anchor\": \"a\", \"type\": \"string\"}},
   \"properties\": {\"x\": {\"$ref\": \"#/$defs/A\"}}}"))
          (x (json-schema-edit-model-node-at-pointer model '(properties "x"))))
-    (should (equal (json-schema-edit-model-node-pointer x) '("properties" "x")))
+    (should (equal (json-schema-edit-model-node-pointer x) '(properties "x")))
     (should (equal (json-schema-edit-model-get-string x '$ref) "#/$defs/A"))
     (should (equal (mapcar #'json-schema-edit-model-ref-value
                            (json-schema-edit-model-refs model))
                    '("#/$defs/A")))
     (should (equal (json-schema-edit-model-ref-pointer
                     (car (json-schema-edit-model-refs model)))
-                   '("properties" "x")))
+                   '(properties "x")))
     (should (equal (map-elt (json-schema-edit-model-resolve model "#a") :pointer)
-                   '("$defs" "A")))
+                   '($defs "A")))
     (should (equal (json-schema-edit-model-type-string
                     (map-elt (json-schema-edit-model-resolve model "#/$defs/A") :node))
                    "string"))))
+
+(ert-deftest json-schema-edit-test-model-keyword-keys ()
+  "Keys of schema objects are keyword symbols; names and data are strings."
+  (let* ((model (json-schema-edit-model-from-string
+                 "{\"properties\": {\"type\": {\"type\": \"string\",
+  \"examples\": [{\"$ref\": \"x\"}]}}}"))
+         (prop (json-schema-edit-model-node-at-pointer model '(properties "type"))))
+    (should (equal (mapcar #'json-schema-edit-model-node-key
+                           (json-schema-edit-model-members prop))
+                   '(type examples)))
+    (should (equal (json-schema-edit-model-node-pointer
+                    (json-schema-edit-model-node-at-pointer
+                     model '(properties "type" examples 0 "$ref")))
+                   '(properties "type" examples 0 "$ref")))
+    ;; A "$ref" inside `examples' is data, not a reference.
+    (should-not (json-schema-edit-model-refs model))))
+
+(ert-deftest json-schema-edit-test-canonical-pointer ()
+  (should (equal (json-schema-edit-model-canonical-pointer
+                  '("properties" "type" "items" "0" "oneOf" "1" "enum" "0"))
+                 '(properties "type" items 0 oneOf 1 enum "0")))
+  (should (equal (json-schema-edit-model-canonical-pointer
+                  '($defs name properties "a"))
+                 '($defs "name" properties "a")))
+  (should (equal (json-schema-edit-model-canonical-pointer
+                  (json-schema-edit-model-pointer-decode "/$defs/A/anyOf/0"))
+                 '($defs "A" anyOf 0))))
 
 (ert-deftest json-schema-edit-test-model-pointer-at ()
   (let* ((text "{\n  \"a\": [1, {\"b\": true}]\n}")
          (model (json-schema-edit-model-from-string text))
          (pos (lambda (s) (1+ (string-search s text)))))
-    (should (equal (json-schema-edit-model-pointer-at model (funcall pos "\"a\"")) '("a")))
-    (should (equal (json-schema-edit-model-pointer-at model (funcall pos "true")) '("a" 1 "b")))
+    (should (equal (json-schema-edit-model-pointer-at model (funcall pos "\"a\"")) '(a)))
+    (should (equal (json-schema-edit-model-pointer-at model (funcall pos "true")) '(a 1 "b")))
     ;; In whitespace, the node after it.
-    (should (equal (json-schema-edit-model-pointer-at model 3) '("a")))
+    (should (equal (json-schema-edit-model-pointer-at model 3) '(a)))
     (should (equal (json-schema-edit-model-line-column model (funcall pos "true"))
                    '(2 . 17)))))
 
@@ -143,7 +170,7 @@
                model "b.json#/$defs/B"
                (lambda (file) (and (equal (file-name-nondirectory file) "b.json") other)))))
     (should (eq (map-elt res :model) other))
-    (should (equal (map-elt res :pointer) '("$defs" "B")))))
+    (should (equal (map-elt res :pointer) '($defs "B")))))
 
 ;;;; Resolution
 
@@ -164,7 +191,7 @@
     (let ((res (json-schema-edit-model-resolve (json-schema-edit-model-current) "common.json#/$defs/Timestamps")))
       (should (equal (map-elt res :file)
                      (expand-file-name "common.json" json-schema-edit-test--fixtures)))
-      (should (equal (map-elt res :pointer) '("$defs" "Timestamps"))))))
+      (should (equal (map-elt res :pointer) '($defs "Timestamps"))))))
 
 (ert-deftest json-schema-edit-test-every-ref-resolves ()
   "Every $ref in the fixtures except the intentionally broken one resolves."
@@ -186,7 +213,7 @@
       (should (equal id "#/$defs/Address"))
       (should (= (length defs) 1))
       (goto-char (xref-location-marker loc))
-      (should (equal (json-schema-edit-model-pointer-at (json-schema-edit-model-current) (point)) '("$defs" "Address"))))))
+      (should (equal (json-schema-edit-model-pointer-at (json-schema-edit-model-current) (point)) '($defs "Address"))))))
 
 (ert-deftest json-schema-edit-test-xref-external-definition ()
   (json-schema-edit-test--with-fixture "user.schema.json"

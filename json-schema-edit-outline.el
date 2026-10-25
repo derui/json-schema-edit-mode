@@ -403,10 +403,8 @@ TARGET is the branch itself, or the local definition its `$ref' points to."
    (json-schema-edit-model-object-p branch)
    (seq-every-p
     (lambda (m)
-      (memq
-       (json-schema-edit-model-keyword
-        (json-schema-edit-model-node-key m))
-       '(type $ref title description)))
+      (memq (json-schema-edit-model-node-key m)
+            '(type $ref title description)))
     (json-schema-edit-model-members branch))
    (or
     (json-schema-edit-model-get-string branch 'type)
@@ -822,7 +820,7 @@ Return non-nil when a line was found."
 
 (defun json-schema-edit-outline-goto-pointer (pointer)
   "Move to the line showing the schema at POINTER, or its nearest ancestor."
-  (let ((target (json-schema-edit-model-normalize-segments pointer))
+  (let ((target (json-schema-edit-model-canonical-pointer pointer))
         best best-len)
     (save-excursion
       (goto-char (point-min))
@@ -831,9 +829,7 @@ Return non-nil when a line was found."
                      (get-text-property
                       (point)
                       'json-schema-edit-outline-entry)))
-          (let ((p
-                 (json-schema-edit-model-normalize-segments
-                  (json-schema-edit-outline-entry-pointer e))))
+          (let ((p (json-schema-edit-outline-entry-pointer e)))
             (when (and
                    (not (json-schema-edit-outline-entry-inherited e))
                    (equal (seq-take target (length p)) p)

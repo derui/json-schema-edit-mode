@@ -204,10 +204,8 @@ same type."
               (key
                (if (seq-every-p
                     (lambda (m)
-                      (memq
-                       (json-schema-edit-model-keyword
-                        (json-schema-edit-model-node-key m))
-                       '(type title description)))
+                      (memq (json-schema-edit-model-node-key m)
+                            '(type title description)))
                     (json-schema-edit-model-members branch))
                    (format "type:%s"
                            (json-schema-edit-model-declared-types branch))
@@ -340,7 +338,7 @@ same type."
                     (push
                      (json-schema-edit-model-node-pointer node)
                      result)))))))))
-    (mapcar #'json-schema-edit-model-normalize-segments result)))
+    result))
 
 (defun json-schema-edit-lint--check-unused (model)
   "Return diagnostics for the definitions of MODEL that no `$ref' uses."
@@ -353,9 +351,7 @@ same type."
                  (json-schema-edit-model-members
                   (json-schema-edit-model-get root keyword)))
           (let* ((name (json-schema-edit-model-node-key def))
-                 (prefix
-                  (json-schema-edit-model-normalize-segments
-                   (list keyword name))))
+                 (prefix (list keyword name)))
             (unless (or
                      (seq-some
                       (lambda (p) (equal (seq-take p 2) prefix))

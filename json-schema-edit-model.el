@@ -22,13 +22,17 @@
 ;; the buffer; after an edit, ask for the model again.
 ;;
 ;; Locations inside a schema are expressed as JSON Pointers (RFC 6901).
-;; Internally a pointer is a list of segments: strings for object keys
-;; and integers for array indices.  Pointers built by code may also use
-;; symbols for keywords, such as (properties "name"); compare pointers
-;; after `json-schema-edit-model-normalize-segments'.
+;; Internally a pointer is a list of segments: symbols for keywords,
+;; strings for names (of properties, definitions, ...) and other object
+;; keys, and integers for array indices, such as (properties "name").
 ;;
-;; Schema keywords are handled as symbols (`properties', `$ref', ...),
+;; Schema keywords are handled as symbols (`properties', `$ref', ...)
+;; everywhere: the keys of the members of a schema object are symbols,
 ;; while property names and other data from the buffer stay strings.
+;; Pointers and keywords from elsewhere, such as user input or a `$ref'
+;; fragment, are brought to that form by
+;; `json-schema-edit-model-canonical-pointer' and
+;; `json-schema-edit-model-keyword'.
 
 ;;; Code:
 
@@ -129,7 +133,8 @@ be listed exactly as it is written in the schema.  Each value is one of
   "A JSON value of a model."
   type       ; object, array, string, number, true, false, null, ...
   value      ; member nodes, element nodes, decoded string or number
-  key        ; key in the parent object, index in the parent array, or nil
+  key        ; key in the parent object (a symbol for a keyword, else a
+             ; string), index in the parent array, or nil
   key-beg    ; region of the key literal for an object member, else nil
   key-end
   pointer    ; segments from the root
@@ -213,22 +218,25 @@ property name, or an integer array index."
 
 (defun json-schema-edit-model-keyword (key)
   "Return the keyword symbol named by KEY, or nil.
-KEY is a symbol, returned as is, or a string such as an object key or a
+KEY is a symbol, returned as is, or a string such as user input or a
 pointer segment.  Integers give nil."
   (cond
    ((symbolp key)
     key)
    ((stringp key)
-    (intern-soft key))))
+    (intern key))))
 
 (defun json-schema-edit-model-get (node key)
   "Return the value node for KEY in the object NODE, or nil.
-KEY is a keyword symbol or a string; see
-`json-schema-edit-model-key-name'."
+KEY is a keyword symbol or a string, matched by its name, so that a
+segment decoded from a JSON Pointer finds a keyword too."
   (let ((key (json-schema-edit-model-key-name key)))
-    (cl-find key
-             (json-schema-edit-model-members node)
-             :key #'json-schema-edit-model-node-key :test #'equal)))
+    (seq-find
+     (lambda (m)
+       (equal
+        (json-schema-edit-model-key-name (json-schema-edit-model-node-key m))
+        key))
+     (json-schema-edit-model-members node))))
 
 (defun json-schema-edit-model-get-string (node key)
   "Return the string value for KEY in the object NODE, or nil."
@@ -266,9 +274,43 @@ interpret them."
          (string-replace "~0" "~" (string-replace "~1" "/" s)))
        (cdr (split-string p "/"))))))
 
-(defun json-schema-edit-model-normalize-segments (segments)
-  "Return SEGMENTS with every segment as a string, for comparison."
-  (mapcar #'json-schema-edit-model-key-name segments))
+(defun json-schema-edit-model--index-segment (seg)
+  "Return SEG as an array index when it is one, else nil."
+  (cond
+   ((integerp seg)
+    seg)
+   ((and
+     (stringp seg)
+     (string-match-p "\\`[0-9]+\\'" seg))
+    (string-to-number seg))))
+
+(defun json-schema-edit-model-canonical-pointer (segments)
+  "Return SEGMENTS in the form the model uses for pointers.
+Keywords become symbols, names and other keys strings, and array
+indices of subschemas integers, so that a pointer from user input or a
+`$ref' fragment compares with `equal' to the pointers of the model."
+  (let ((state 'schema)
+        result)
+    (dolist (seg segments)
+      (let ((seg
+             (pcase state
+               ((or 'schema 'schema-or-array)
+                (or
+                 (and
+                  (eq state 'schema-or-array)
+                  (json-schema-edit-model--index-segment seg))
+                 (and (not (integerp seg))
+                      (json-schema-edit-model-keyword seg))
+                 seg))
+               ('array
+                (or (json-schema-edit-model--index-segment seg) seg))
+               (_
+                (if (integerp seg)
+                    seg
+                  (json-schema-edit-model-key-name seg))))))
+        (push seg result)
+        (setq state (json-schema-edit-model--next-state state seg))))
+    (nreverse result)))
 
 (defun json-schema-edit-model-lookup (node segments)
   "Return the node reached by SEGMENTS from NODE, or nil."
@@ -279,13 +321,7 @@ interpret them."
               ('object
                (json-schema-edit-model-get node seg))
               ('array
-               (let ((idx
-                      (if (integerp seg)
-                          seg
-                        (and
-                         (stringp seg)
-                         (string-match-p "\\`[0-9]+\\'" seg)
-                         (string-to-number seg)))))
+               (let ((idx (json-schema-edit-model--index-segment seg)))
                  (and idx
                       (nth idx
                            (json-schema-edit-model-elements node)))))))))
@@ -388,33 +424,45 @@ string of `type') are mapped to the object that holds them."
   '(oneOf anyOf allOf prefixItems)
   "Keywords whose value is an array of subschemas.")
 
+(defun json-schema-edit-model--next-state (state seg)
+  "Return the state reached from STATE through the segment SEG.
+A state tells what a value is: `schema', `schema-or-array' (the value
+of `items'), `map' (names to subschemas), `array' (of subschemas) or
+`data'."
+  (pcase state
+    ((or 'schema 'schema-or-array)
+     (let ((keyword
+            (and (not (integerp seg))
+                 (json-schema-edit-model-keyword seg))))
+       (cond
+        ((and (eq state 'schema-or-array) (integerp seg))
+         'schema)
+        ((memq keyword json-schema-edit-model--map-keywords)
+         'map)
+        ((eq keyword 'items)
+         'schema-or-array)
+        ((memq keyword json-schema-edit-model--schema-keywords)
+         'schema)
+        ((memq keyword json-schema-edit-model--array-keywords)
+         'array)
+        (t 'data))))
+    ('map 'schema)
+    ('array
+     (if (integerp seg) 'schema 'data))
+    (_ 'data)))
+
+(defun json-schema-edit-model--schema-state-p (state)
+  "Return non-nil if a value in STATE is a schema, whose keys are keywords."
+  (memq state '(schema schema-or-array)))
+
 (defun json-schema-edit-model-schema-position-p (segments)
   "Return non-nil if SEGMENTS address a subschema rather than a keyword value.
 The whole path is followed from the root, so that objects inside
 `examples', `default' or `enum' are not taken for schemas."
   (let ((state 'schema))
     (dolist (seg segments)
-      (setq state
-            (pcase state
-              ((or 'schema 'schema-or-array)
-               (let ((keyword (json-schema-edit-model-keyword seg)))
-                 (cond
-                  ((and (eq state 'schema-or-array) (integerp seg))
-                   'schema)
-                  ((memq keyword json-schema-edit-model--map-keywords)
-                   'map)
-                  ((eq keyword 'items)
-                   'schema-or-array)
-                  ((memq keyword json-schema-edit-model--schema-keywords)
-                   'schema)
-                  ((memq keyword json-schema-edit-model--array-keywords)
-                   'array)
-                  (t 'data))))
-              ('map 'schema)
-              ('array
-               (if (integerp seg) 'schema 'data))
-              (_ 'data))))
-    (memq state '(schema schema-or-array))))
+      (setq state (json-schema-edit-model--next-state state seg)))
+    (json-schema-edit-model--schema-state-p state)))
 
 (defun json-schema-edit-model-schemas (model)
   "Return every schema object of MODEL, in document order."
@@ -436,7 +484,7 @@ The whole path is followed from the root, so that objects inside
       (dolist (m (json-schema-edit-model-members object))
         (when-let* ((value (json-schema-edit-model-string-value m)))
           (pcase (json-schema-edit-model-node-key m)
-            ("$ref"
+            ('$ref
              (push
               (json-schema-edit-model-ref-create
                :value value
@@ -444,10 +492,10 @@ The whole path is followed from the root, so that objects inside
                :beg (json-schema-edit-model-node-beg m)
                :end (json-schema-edit-model-node-end m))
               refs))
-            ("$anchor" (push (cons value object) anchors))
-            ("$dynamicAnchor"
+            ('$anchor (push (cons value object) anchors))
+            ('$dynamicAnchor
              (push (cons value object) dynamic-anchors))
-            ("$id" (push (cons value object) ids))))))
+            ('$id (push (cons value object) ids))))))
     (list :refs
           (nreverse refs)
           :anchors (nconc (nreverse anchors) (nreverse dynamic-anchors))
@@ -704,10 +752,12 @@ apply."
         (substring text 1 -1)
       (condition-case nil (json-parse-string text) (error nil)))))
 
-(defun json-schema-edit-model--convert (ts pointer source &optional key key-node)
+(defun json-schema-edit-model--convert (ts pointer state source &optional key key-node)
   "Return the model node of the tree-sitter node TS at POINTER.
-SOURCE is the text of the document.  KEY is the key or index of TS in
-its parent, and KEY-NODE the tree-sitter key of a member."
+STATE is what TS is, as for `json-schema-edit-model--next-state'; the
+keys of a schema object become keyword symbols.  SOURCE is the text of
+the document.  KEY is the key or index of TS in its parent, and
+KEY-NODE the tree-sitter key of a member."
   (let ((type (intern (treesit-node-type ts))))
     (json-schema-edit-model--node-create
      :type type
@@ -718,11 +768,17 @@ its parent, and KEY-NODE the tree-sitter key of a member."
                    (when-let* (((equal (treesit-node-type pair) "pair"))
                                (k (treesit-node-child-by-field-name pair "key"))
                                (v (treesit-node-child-by-field-name pair "value")))
-                     (let ((name (json-schema-edit-model--ts-key k)))
+                     (let* ((name (json-schema-edit-model--ts-key k))
+                            (name
+                             (if (and name
+                                      (json-schema-edit-model--schema-state-p state))
+                                 (intern name)
+                               name)))
                        (push
                         (json-schema-edit-model--convert
                          v
                          (append pointer (list name))
+                         (json-schema-edit-model--next-state state name)
                          source name k)
                         members))))
                  (nreverse members)))
@@ -734,6 +790,7 @@ its parent, and KEY-NODE the tree-sitter key of a member."
                     (json-schema-edit-model--convert
                      child
                      (append pointer (list i))
+                     (json-schema-edit-model--next-state state i)
                      source i)
                     elements)
                    (setq i (1+ i)))
@@ -767,7 +824,7 @@ its parent, and KEY-NODE the tree-sitter key of a member."
                (json-schema-edit-model-parser))
               t))))
       (json-schema-edit-model-make
-       (and top (json-schema-edit-model--convert top nil source))
+       (and top (json-schema-edit-model--convert top nil 'schema source))
        source file buffer directory))))
 
 (defvar-local json-schema-edit-model--current nil
