@@ -530,6 +530,19 @@ BODY runs in the outline buffer; `source' is bound to the schema buffer."
                                                   (kbd "?"))
                                                  #'describe-mode))))
 
+(ert-deftest json-schema-edit-outline-test-line-move-to-name
+    ()
+  (json-schema-edit-outline-test--with-outline "user.schema.json"
+    (json-schema-edit-outline-next-line)
+    (should (looking-at-p "id \\*"))
+    (json-schema-edit-outline-next-line 2)
+    (should (looking-at-p "address "))
+    (json-schema-edit-outline-previous-line)
+    (should (looking-at-p "name \\*"))
+    (should
+     (eq (key-binding [remap next-line])
+         #'json-schema-edit-outline-next-line))))
+
 (ert-deftest json-schema-edit-outline-test-unique-line-ids
     ()
   (with-temp-buffer

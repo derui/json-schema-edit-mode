@@ -727,7 +727,8 @@ IDs are unique: entries that would share one get a counter suffix."
    (propertize
     (json-schema-edit-outline-entry-label entry)
     'face
-    (json-schema-edit-outline--label-face entry))
+    (json-schema-edit-outline--label-face entry)
+    'json-schema-edit-outline-name t)
    (when (json-schema-edit-outline-entry-required entry)
      (propertize " *" 'face 'json-schema-edit-outline-required))))
 
@@ -1141,6 +1142,26 @@ When FN returns a pointer, point moves to its line."
   (message "allOf: %s"
            (if json-schema-edit-outline-merge-allof "merged" "as written")))
 
+(defun json-schema-edit-outline--goto-name ()
+  "Move to the beginning of the name on the current line."
+  (when-let* ((pos
+               (text-property-any
+                (pos-bol) (pos-eol)
+                'json-schema-edit-outline-name t)))
+    (goto-char pos)))
+
+(defun json-schema-edit-outline-next-line (&optional arg)
+  "Move ARG lines down and put point at the beginning of the name."
+  (interactive "^p")
+  (line-move (or arg 1))
+  (json-schema-edit-outline--goto-name))
+
+(defun json-schema-edit-outline-previous-line (&optional arg)
+  "Move ARG lines up and put point at the beginning of the name."
+  (interactive "^p")
+  (line-move (- (or arg 1)))
+  (json-schema-edit-outline--goto-name))
+
 (defun json-schema-edit-outline-ignore ()
   "Tell that outline structure editing does not apply here."
   (interactive)
@@ -1187,8 +1208,14 @@ When FN returns a pointer, point moves to its line."
                 #'json-schema-edit-outline-toggle-merge)
     (define-key map (kbd "g") #'json-schema-edit-outline-refresh)
     (define-key map (kbd "?") #'describe-mode)
-    (define-key map (kbd "n") #'next-line)
-    (define-key map (kbd "p") #'previous-line)
+    (define-key map (kbd "n") #'json-schema-edit-outline-next-line)
+    (define-key map (kbd "p") #'json-schema-edit-outline-previous-line)
+    (define-key map
+                [remap next-line]
+                #'json-schema-edit-outline-next-line)
+    (define-key map
+                [remap previous-line]
+                #'json-schema-edit-outline-previous-line)
     (dolist (cmd
              '(outline-move-subtree-up outline-move-subtree-down
                                        outline-promote outline-demote))
