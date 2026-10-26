@@ -1074,7 +1074,8 @@ When FN returns a pointer, point moves to its line."
           (user-error "Only properties and definitions can be renamed")))))))
 
 (defun json-schema-edit-outline-add-property ()
-  "Add a property next to the property at point, or into the schema at point."
+  "Add a property into the object schema at point.
+On a property that is not an object schema, add it next to that property."
   (interactive)
   (json-schema-edit-outline--edit
    (lambda (e)
@@ -1082,7 +1083,10 @@ When FN returns a pointer, point moves to its line."
             (owner
              (pcase (json-schema-edit-outline-entry-kind e)
                ('property
-                (butlast pointer 2))
+                (if (json-schema-edit-edit--object-schema-p
+                     (json-schema-edit-edit--node pointer))
+                    pointer
+                  (butlast pointer 2)))
                ((or 'root 'definition 'branch 'additional 'items)
                 pointer)
                (_ (user-error "Cannot add a property here")))))

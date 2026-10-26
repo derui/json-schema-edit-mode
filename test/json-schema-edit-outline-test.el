@@ -423,7 +423,39 @@ BODY runs in the outline buffer; `source' is bound to the schema buffer."
                                                          '((type . "integer"))))
                                                  (should
                                                   (equal .$defs.Address.required
-                                                         '("zip" "country"))))))
+                                                         '("zip" "country"))))
+                                               ;; On a property holding an object, the property goes into it.
+                                               (goto-char
+                                                (point-min))
+                                               (cl-letf
+                                                   (((symbol-function 'read-string)
+                                                     (lambda (&rest _)
+                                                       "meta"))
+                                                    ((symbol-function 'completing-read)
+                                                     (lambda (&rest _)
+                                                       "object"))
+                                                    ((symbol-function 'y-or-n-p)
+                                                     (lambda (&rest _)
+                                                       nil)))
+                                                 (json-schema-edit-outline-add-property))
+                                               (json-schema-edit-outline-test--goto "meta")
+                                               (cl-letf
+                                                   (((symbol-function 'read-string)
+                                                     (lambda (&rest _)
+                                                       "note"))
+                                                    ((symbol-function 'completing-read)
+                                                     (lambda (&rest _)
+                                                       "string"))
+                                                    ((symbol-function 'y-or-n-p)
+                                                     (lambda (&rest _)
+                                                       nil)))
+                                                 (json-schema-edit-outline-add-property))
+                                               (let-alist
+                                                   (json-schema-edit-outline-test--source-json source)
+                                                 (should
+                                                  (equal .properties.meta.properties.note
+                                                         '((type . "string"))))
+                                                 (should-not .properties.note))))
 
 (ert-deftest json-schema-edit-outline-test-remove-property
     ()
