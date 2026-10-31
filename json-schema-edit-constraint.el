@@ -12,16 +12,15 @@
 ;; pending and written at once with RET; C-g leaves the buffer as it
 ;; was.
 ;;
-;; Ranges use the notation of the outline: "1..100", "..100", "1..",
-;; and for numbers "(0..100]" with exclusive bounds.  An empty input
-;; removes the bounds.  enum is edited one value per line in a small
-;; buffer.
+;; Ranges are edited in a sub menu that sets or removes each bound and,
+;; for numbers, toggles whether it is exclusive; the menu shows the
+;; range in the notation of the outline, such as "(0..100]".  enum is
+;; edited one value per line in a small buffer.
 
 ;;; Code:
 
 (require 'transient)
 (require 'flymake)
-(require 'map)
 (require 'json-schema-edit-model)
 (require 'json-schema-edit-edit)
 
@@ -65,21 +64,18 @@ KEYWORD is a symbol.")
               (or
                (let ((pending
                       (assq 'type json-schema-edit-constraint--pending)))
-                 (and pending
-                      (cdr pending)
-                      (json-schema-edit-constraint--parse-types
-                       (cdr pending))))
+                 (when-let* ((pending pending)
+                             (v (cdr pending))
+                             (v
+                              (ignore-errors
+                                (json-parse-string
+                                 (concat "[" (cdr pending) "]")
+                                 :array-type 'list))))
+                   (if (listp (car v)) (car v) v)))
                (json-schema-edit-model-declared-types node)
                (and
                 (json-schema-edit-model-get node 'properties)
                 '("object")))))))
-
-(defun json-schema-edit-constraint--parse-types (text)
-  "Return the types in the `type' value TEXT."
-  (let ((v
-         (ignore-errors
-           (json-parse-string (concat "[" text "]") :array-type 'list))))
-    (if (listp (car v)) (car v) v)))
 
 (defun json-schema-edit-constraint--type-p (&rest types)
   "Return non-nil if the schema being edited has one of TYPES."
@@ -119,64 +115,14 @@ KEYWORD is a symbol.")
 
 ;;;; Ranges
 
-(defconst json-schema-edit-constraint--number-re
-  "-?[0-9]+\\(?:\\.[0-9]+\\)?\\(?:[eE][-+]?[0-9]+\\)?"
-  "Regexp matching a JSON number.")
-
-(defun json-schema-edit-constraint-parse-range (text kind)
-  "Parse the range TEXT for KIND, `count', `integer' or `number'.
-Return a plist (:min :max :xmin :xmax) of number strings, nil meaning
-absent; signal `user-error' on invalid input.  An empty TEXT gives
-all nil."
-  (let ((text (string-trim text))
-        (num json-schema-edit-constraint--number-re))
-    (cond
-     ((string-empty-p text)
-      nil)
-     ((string-match (concat "\\`\\(" num "\\)\\'") text)
-      (json-schema-edit-constraint--check-range
-       (list :min (match-string 1 text) :max (match-string 1 text))
-       kind))
-     ((string-match
-       (concat
-        "\\`\\([[(]\\)?[ \t]*\\(" num "\\)?[ \t]*\\.\\.[ \t]*\\("
-        num "\\)?[ \t]*\\([])]\\)?\\'")
-       text)
-      (let ((open (match-string 1 text))
-            (lo (match-string 2 text))
-            (hi (match-string 3 text))
-            (close (match-string 4 text)))
-        (when (and (eq kind 'count) (or open close))
-          (user-error "Exclusive bounds only apply to numbers"))
-        (unless (or lo hi) (user-error "Give at least one bound"))
-        (json-schema-edit-constraint--check-range
-         (list :min
-               (and lo (not (equal open "(")) lo)
-               :xmin (and lo (equal open "(") lo)
-               :max (and hi (not (equal close ")")) hi)
-               :xmax (and hi (equal close ")") hi))
-         kind)))
-     (t (user-error "Not a range: %s (try 1..100)" text)))))
-
-(defun json-schema-edit-constraint--check-range (range kind)
-  "Return RANGE after checking its bounds make sense for KIND."
-  (let ((lo (or (map-elt range :min) (map-elt range :xmin)))
-        (hi (or (map-elt range :max) (map-elt range :xmax))))
-    (dolist (b (list lo hi))
-      (when b
-        (when (and
-               (memq kind '(count integer))
-               (not (string-match-p "\\`-?[0-9]+\\'" b)))
-          (user-error "%s is not an integer" b))
-        (when (and (eq kind 'count) (< (string-to-number b) 0))
-          (user-error "A count cannot be negative"))))
-    (when (and lo hi (> (string-to-number lo) (string-to-number hi)))
-      (user-error "The lower bound %s is above the upper bound %s" lo hi))
-    (when (and lo hi
-               (= (string-to-number lo) (string-to-number hi))
-               (or (map-elt range :xmin) (map-elt range :xmax)))
-      (user-error "The range is empty"))
-    range))
+(defun json-schema-edit-constraint--number (text)
+  "Return the number the JSON TEXT denotes, or nil."
+  (when text
+    (let ((v (ignore-errors (json-parse-string (concat "[" text "]")))))
+      (and (vectorp v)
+           (= (length v) 1)
+           (numberp (aref v 0))
+           (aref v 0)))))
 
 (defun json-schema-edit-constraint--range-keywords ()
   "Return (KIND MIN MAX XMIN XMAX) for the type being edited."
@@ -200,18 +146,16 @@ all nil."
       (json-schema-edit-model-current))
      'draft-04)))
 
-(defun json-schema-edit-constraint--range-text ()
-  "Return the current range in the range notation, or nil."
+(defun json-schema-edit-constraint--range ()
+  "Return the current range as a plist (:min :max :xmin :xmax).
+:min and :max are the JSON texts of the bounds, nil when absent; :xmin
+and :xmax are non-nil when the bound is exclusive."
   (pcase-let ((`(,_ ,min ,max ,xmin ,xmax)
                (json-schema-edit-constraint--range-keywords)))
     (let* ((num
             (lambda (k)
               (let ((v (and k (json-schema-edit-constraint--current k))))
-                (and v
-                     (string-match-p
-                      (concat "\\`" json-schema-edit-constraint--number-re "\\'")
-                      v)
-                     v))))
+                (and (json-schema-edit-constraint--number v) v))))
            (bool
             (lambda (k)
               (equal
@@ -219,47 +163,84 @@ all nil."
                "true")))
            (lo (funcall num min))
            (hi (funcall num max))
-           ;; draft-04 marks exclusive bounds with booleans.
-           (xlo
-            (or (funcall num xmin) (and (funcall bool xmin) lo)))
-           (xhi
-            (or (funcall num xmax) (and (funcall bool xmax) hi))))
-      (when (or lo hi xlo xhi)
-        (if (or xlo xhi)
-            (concat
-             (if xlo "(" "[")
-             (or xlo lo "")
-             ".."
-             (or xhi hi "")
-             (if xhi ")" "]"))
-          (concat (or lo "") ".." (or hi "")))))))
+           (xlo (funcall num xmin))
+           (xhi (funcall num xmax)))
+      ;; draft-04 marks exclusive bounds with booleans.
+      (list :min (or xlo lo)
+            :max (or xhi hi)
+            :xmin (and (or xlo (and lo (funcall bool xmin))) t)
+            :xmax (and (or xhi (and hi (funcall bool xmax))) t)))))
 
-(defun json-schema-edit-constraint-set-range (text)
-  "Set the range of the schema being edited from TEXT."
-  (pcase-let* ((`(,kind ,min ,max ,xmin ,xmax)
-                (json-schema-edit-constraint--range-keywords))
-               (range (json-schema-edit-constraint-parse-range text kind)))
+(defun json-schema-edit-constraint--range-text (&optional range)
+  "Return RANGE (default: the current one) in the range notation, or nil."
+  (let* ((range (or range (json-schema-edit-constraint--range)))
+         (lo (plist-get range :min))
+         (hi (plist-get range :max))
+         (xlo (and lo (plist-get range :xmin)))
+         (xhi (and hi (plist-get range :xmax))))
+    (when (or lo hi)
+      (if (or xlo xhi)
+          (concat (if xlo "(" "[") (or lo "") ".." (or hi "") (if xhi ")" "]"))
+        (concat (or lo "") ".." (or hi ""))))))
+
+(defun json-schema-edit-constraint--check-range (range kind)
+  "Signal `user-error' unless the bounds of RANGE make sense for KIND."
+  (let ((lo (json-schema-edit-constraint--number (plist-get range :min)))
+        (hi (json-schema-edit-constraint--number (plist-get range :max)))
+        (exclusive
+         (or (and (plist-get range :min) (plist-get range :xmin))
+             (and (plist-get range :max) (plist-get range :xmax)))))
+    (dolist (side '(:min :max))
+      (when-let* ((text (plist-get range side)))
+        (let ((n (json-schema-edit-constraint--number text)))
+          (unless n
+            (user-error "%s is not a number" text))
+          (when (and (memq kind '(count integer)) (not (integerp n)))
+            (user-error "%s is not an integer" text))
+          (when (and (eq kind 'count) (< n 0))
+            (user-error "A count cannot be negative")))))
+    (when (and (eq kind 'count) exclusive)
+      (user-error "Exclusive bounds only apply to numbers"))
+    (when (and lo hi (> lo hi))
+      (user-error "The lower bound %s is above the upper bound %s"
+                  (plist-get range :min) (plist-get range :max)))
+    (when (and lo hi (= lo hi) exclusive)
+      (user-error "The range is empty"))))
+
+(defun json-schema-edit-constraint-set-range (range)
+  "Set the range of the schema being edited to RANGE.
+RANGE is a plist like the one `json-schema-edit-constraint--range'
+returns.  Signal `user-error' when its bounds do not make sense for the
+type; nothing is recorded then.  Only keywords whose text changes are
+recorded."
+  (pcase-let ((`(,kind ,min ,max ,xmin ,xmax)
+               (json-schema-edit-constraint--range-keywords)))
     (unless kind (user-error "No range applies to this type"))
-    (if (and xmin (json-schema-edit-constraint--draft-04-p))
-        (json-schema-edit-constraint--set
-         min
-         (or (map-elt range :min) (map-elt range :xmin))
-         max
-         (or (map-elt range :max) (map-elt range :xmax))
-         xmin
-         (and (map-elt range :xmin) "true")
-         xmax
-         (and (map-elt range :xmax) "true"))
-      (json-schema-edit-constraint--set min
-                                        (map-elt range :min)
-                                        max
-                                        (map-elt range :max))
-      (when xmin
-        (json-schema-edit-constraint--set
-         xmin
-         (map-elt range :xmin)
-         xmax
-         (map-elt range :xmax))))))
+    (json-schema-edit-constraint--check-range range kind)
+    (let* ((lo (plist-get range :min))
+           (hi (plist-get range :max))
+           (xlo (and lo (plist-get range :xmin)))
+           (xhi (and hi (plist-get range :xmax)))
+           (changes
+            (cond
+             ((null xmin) (list min lo max hi))
+             ((json-schema-edit-constraint--draft-04-p)
+              (list min lo max hi
+                    xmin (and xlo "true") xmax (and xhi "true")))
+             (t (list min (and (not xlo) lo) max (and (not xhi) hi)
+                      xmin (and xlo lo) xmax (and xhi hi))))))
+      (while changes
+        (let ((kw (pop changes))
+              (text (pop changes)))
+          (unless (equal text (json-schema-edit-constraint--current kw))
+            (json-schema-edit-constraint--set kw text)))))))
+
+(defun json-schema-edit-constraint--update-range (&rest changes)
+  "Set the range to the current one with CHANGES, a plist, applied."
+  (let ((range (copy-sequence (json-schema-edit-constraint--range))))
+    (while changes
+      (setq range (plist-put range (pop changes) (pop changes))))
+    (json-schema-edit-constraint-set-range range)))
 
 ;;;; Values
 
@@ -366,30 +347,170 @@ LABEL names KEYWORD in the menu, the name of KEYWORD by default."
        (progn ,@body)
      (user-error (message "%s" (error-message-string err)))))
 
-(transient-define-suffix json-schema-edit-constraint-range
+;;;;; Range
+
+(defun json-schema-edit-constraint--range-face (text &rest keywords)
+  "Return the face showing TEXT of a range made of KEYWORDS."
+  (cond
+   ((seq-some #'json-schema-edit-constraint--changed-p (delq nil keywords))
+    'warning)
+   (text 'transient-value)
+   (t 'shadow)))
+
+(defun json-schema-edit-constraint--range-desc ()
+  "Return the menu description of the range."
+  (let ((text (json-schema-edit-constraint--range-text)))
+    (format "%-13s %s" "range"
+            (propertize
+             (or text "(none)")
+             'face
+             (apply #'json-schema-edit-constraint--range-face text
+                    (cdr (json-schema-edit-constraint--range-keywords)))))))
+
+(defun json-schema-edit-constraint--range-header ()
+  "Return the header of the range menu."
+  (format "%s  %s"
+          (json-schema-edit-constraint--header)
+          (json-schema-edit-constraint--range-desc)))
+
+(defun json-schema-edit-constraint--exclusive-p ()
+  "Return non-nil if bounds of the type being edited can be exclusive."
+  (nth 3 (json-schema-edit-constraint--range-keywords)))
+
+(defun json-schema-edit-constraint--bound-desc (side)
+  "Return the menu description of the bound SIDE, `:min' or `:max'."
+  (pcase-let* ((`(,_ ,min ,max ,xmin ,xmax)
+                (json-schema-edit-constraint--range-keywords))
+               (range (json-schema-edit-constraint--range))
+               (text (plist-get range side))
+               (`(,label ,kw ,xkw ,flag)
+                (if (eq side :min)
+                    (list "lower" min xmin :xmin)
+                  (list "upper" max xmax :xmax))))
+    (format "%-13s %s %s" label
+            (propertize
+             (or text "(none)")
+             'face (json-schema-edit-constraint--range-face text kw xkw))
+            (propertize
+             (format "%s"
+                     (if (and (plist-get range flag)
+                              (not (json-schema-edit-constraint--draft-04-p)))
+                         xkw
+                       kw))
+             'face 'shadow))))
+
+(defun json-schema-edit-constraint--exclusive-desc (side)
+  "Return the menu description of the exclusiveness of SIDE."
+  (let ((exclusive
+         (plist-get (json-schema-edit-constraint--range)
+                    (if (eq side :min) :xmin :xmax))))
+    (format "%-13s %s" "exclusive"
+            (propertize (if exclusive "yes" "no")
+                        'face (if exclusive 'transient-value 'shadow)))))
+
+(defun json-schema-edit-constraint--read-bound (side)
+  "Read the bound SIDE, `:min' or `:max', and record it."
+  (json-schema-edit-constraint--with-errors
+    (let ((input
+           (string-trim
+            (read-string
+             (format "%s bound (empty to remove): "
+                     (if (eq side :min) "Lower" "Upper"))
+             (plist-get (json-schema-edit-constraint--range) side)))))
+      (json-schema-edit-constraint--update-range
+       side (unless (string-empty-p input) input)))))
+
+(defun json-schema-edit-constraint--toggle-exclusive (side)
+  "Toggle whether the bound SIDE, `:min' or `:max', is exclusive."
+  (json-schema-edit-constraint--with-errors
+    (let ((range (json-schema-edit-constraint--range))
+          (flag (if (eq side :min) :xmin :xmax)))
+      (unless (plist-get range side)
+        (user-error "Set the %s bound first"
+                    (if (eq side :min) "lower" "upper")))
+      (json-schema-edit-constraint--update-range
+       flag (not (plist-get range flag))))))
+
+(transient-define-suffix json-schema-edit-constraint-range-min
   ()
-  "Set the range (length, value, items or properties)."
+  "Set the lower bound."
   :transient t
-  :description (lambda
-                 ()
-                 (let* ((kws (json-schema-edit-constraint--range-keywords))
-                        (changed
-                         (seq-some #'json-schema-edit-constraint--changed-p
-                                   (delq nil (cdr kws))))
-                        (text (json-schema-edit-constraint--range-text)))
-                   (format "%-13s %s" "range"
-                           (propertize
-                            (or text "(none)")
-                            'face
-                            (cond
-                             (changed 'warning)
-                             (text 'transient-value)
-                             (t 'shadow))))))
+  :description (lambda () (json-schema-edit-constraint--bound-desc :min))
+  (interactive)
+  (json-schema-edit-constraint--read-bound :min))
+
+(transient-define-suffix json-schema-edit-constraint-range-max
+  ()
+  "Set the upper bound."
+  :transient t
+  :description (lambda () (json-schema-edit-constraint--bound-desc :max))
+  (interactive)
+  (json-schema-edit-constraint--read-bound :max))
+
+(transient-define-suffix json-schema-edit-constraint-range-remove-min
+  ()
+  "Remove the lower bound."
+  :transient t
+  :description "remove lower bound"
   (interactive)
   (json-schema-edit-constraint--with-errors
-    (json-schema-edit-constraint-set-range
-     (read-string "Range (1..100, ..100, (0..1], empty to remove): "
-                  (json-schema-edit-constraint--range-text)))))
+    (json-schema-edit-constraint--update-range :min nil)))
+
+(transient-define-suffix json-schema-edit-constraint-range-remove-max
+  ()
+  "Remove the upper bound."
+  :transient t
+  :description "remove upper bound"
+  (interactive)
+  (json-schema-edit-constraint--with-errors
+    (json-schema-edit-constraint--update-range :max nil)))
+
+(transient-define-suffix json-schema-edit-constraint-range-exclusive-min
+  ()
+  "Toggle whether the lower bound is exclusive."
+  :transient t
+  :description (lambda () (json-schema-edit-constraint--exclusive-desc :min))
+  (interactive)
+  (json-schema-edit-constraint--toggle-exclusive :min))
+
+(transient-define-suffix json-schema-edit-constraint-range-exclusive-max
+  ()
+  "Toggle whether the upper bound is exclusive."
+  :transient t
+  :description (lambda () (json-schema-edit-constraint--exclusive-desc :max))
+  (interactive)
+  (json-schema-edit-constraint--toggle-exclusive :max))
+
+(transient-define-suffix json-schema-edit-constraint-range-clear
+  ()
+  "Remove both bounds."
+  :transient t
+  :description "remove both bounds"
+  (interactive)
+  (json-schema-edit-constraint--with-errors
+    (json-schema-edit-constraint--update-range :min nil :max nil)))
+
+(transient-define-prefix json-schema-edit-constraint-range-menu
+  ()
+  "Edit the range (length, value, items or properties)."
+  [:description json-schema-edit-constraint--range-header
+                ["Lower"
+                 ("m" json-schema-edit-constraint-range-min)
+                 ("M" json-schema-edit-constraint-range-remove-min)
+                 ("(" json-schema-edit-constraint-range-exclusive-min
+                  :if json-schema-edit-constraint--exclusive-p)
+                 ]
+                ["Upper"
+                 ("x" json-schema-edit-constraint-range-max)
+                 ("X" json-schema-edit-constraint-range-remove-max)
+                 (")" json-schema-edit-constraint-range-exclusive-max
+                  :if json-schema-edit-constraint--exclusive-p)
+                 ]]
+  [("k" json-schema-edit-constraint-range-clear)
+   ("RET" "back" transient-quit-one)
+   ])
+
+;;;;; Other keywords
 
 (transient-define-suffix json-schema-edit-constraint-pattern
   ()
@@ -441,11 +562,7 @@ LABEL names KEYWORD in the menu, the name of KEYWORD by default."
                          (json-schema-edit-constraint--current 'multipleOf)))))
       (unless (or
                (string-empty-p input)
-               (and
-                (string-match-p
-                 (concat "\\`" json-schema-edit-constraint--number-re "\\'")
-                 input)
-                (> (string-to-number input) 0)))
+               (> (or (json-schema-edit-constraint--number input) 0) 0))
         (user-error "The value of `multipleOf' must be a number above 0"))
       (json-schema-edit-constraint--set 'multipleOf
                                         (unless (string-empty-p input)
@@ -753,7 +870,8 @@ They are symbols."
                  :if (lambda
                        ()
                        (json-schema-edit-constraint--type-p "string"))
-                 ("l" json-schema-edit-constraint-range)
+                 ("l" json-schema-edit-constraint-range-menu
+                  :description json-schema-edit-constraint--range-desc)
                  ("p" json-schema-edit-constraint-pattern)
                  ("f" json-schema-edit-constraint-format)
                  ]
@@ -761,14 +879,16 @@ They are symbols."
                  :if (lambda
                        ()
                        (json-schema-edit-constraint--type-p "number" "integer"))
-                 ("l" json-schema-edit-constraint-range)
+                 ("l" json-schema-edit-constraint-range-menu
+                  :description json-schema-edit-constraint--range-desc)
                  ("m" json-schema-edit-constraint-multiple-of)
                  ]
                 ["Items"
                  :if (lambda
                        ()
                        (json-schema-edit-constraint--type-p "array"))
-                 ("l" json-schema-edit-constraint-range)
+                 ("l" json-schema-edit-constraint-range-menu
+                  :description json-schema-edit-constraint--range-desc)
                  ("u" json-schema-edit-constraint-unique)
                  ("i" json-schema-edit-constraint-items)
                  ]
@@ -776,7 +896,8 @@ They are symbols."
                  :if (lambda
                        ()
                        (json-schema-edit-constraint--type-p "object"))
-                 ("l" json-schema-edit-constraint-range)
+                 ("l" json-schema-edit-constraint-range-menu
+                  :description json-schema-edit-constraint--range-desc)
                  ("a" json-schema-edit-constraint-additional)
                  ("n" json-schema-edit-constraint-property-names)
                  ]]

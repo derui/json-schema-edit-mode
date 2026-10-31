@@ -398,46 +398,6 @@
 
 ;;;; Constraint ranges
 
-(ert-deftest json-schema-edit-phase4-test-parse-range
-    ()
-  (should
-   (equal
-    (json-schema-edit-constraint-parse-range "1..100" 'count)
-    '(:min "1" :xmin nil :max "100" :xmax nil)))
-  (should
-   (equal
-    (json-schema-edit-constraint-parse-range "..100" 'count)
-    '(:min nil :xmin nil :max "100" :xmax nil)))
-  (should
-   (equal
-    (json-schema-edit-constraint-parse-range " 1.. " 'count)
-    '(:min "1" :xmin nil :max nil :xmax nil)))
-  (should
-   (equal
-    (json-schema-edit-constraint-parse-range "(0..100]" 'number)
-    '(:min nil :xmin "0" :max "100" :xmax nil)))
-  (should
-   (equal
-    (json-schema-edit-constraint-parse-range "[-1.5..2e3)" 'number)
-    '(:min "-1.5" :xmin nil :max nil :xmax "2e3")))
-  (should
-   (equal
-    (json-schema-edit-constraint-parse-range "5" 'count)
-    '(:min "5" :max "5")))
-  (should (null (json-schema-edit-constraint-parse-range "" 'count)))
-  (dolist (bad
-           '(("10..1" count)
-             ("-1..3" count)
-             ("1.5..3" count)
-             ("(1..3]" count)
-             ("1.5..3" integer)
-             ("(1..1)" number)
-             ("abc" number)
-             (".." number)))
-    (should-error
-     (apply #'json-schema-edit-constraint-parse-range bad)
-     :type 'user-error)))
-
 (defmacro json-schema-edit-phase4-test--with-constraints (text pointer &rest body)
   "Edit constraints of POINTER in a buffer holding TEXT, then evaluate BODY."
   (declare (indent 2))
@@ -454,7 +414,7 @@
   (json-schema-edit-phase4-test--with-constraints
    "{\"type\": \"string\", \"maxLength\": 5, \"minimum\": 1}" nil
    (should (equal (json-schema-edit-constraint--range-text) "..5"))
-   (json-schema-edit-constraint-set-range "1..254")
+   (json-schema-edit-constraint--update-range :min "1" :max "254")
    (should
     (equal (json-schema-edit-constraint--range-text) "1..254"))
    (should
@@ -488,11 +448,11 @@
   (json-schema-edit-phase4-test--with-constraints
    "{\"type\": \"integer\", \"minimum\": 0}" nil
    (should (equal (json-schema-edit-constraint--range-text) "0.."))
-   (json-schema-edit-constraint-set-range "(0..100]")
+   (json-schema-edit-constraint--update-range :min "0" :xmin t :max "100")
    (should
     (equal (json-schema-edit-constraint--range-text) "(0..100]"))
    (should-error
-    (json-schema-edit-constraint-set-range "0.5..1")
+    (json-schema-edit-constraint--update-range :min "0.5")
     :type 'user-error)
    (json-schema-edit-constraint-apply)
    (should
@@ -501,18 +461,57 @@
      '((type . "integer")
        (maximum . 100)
        (exclusiveMinimum . 0))))
-   (json-schema-edit-constraint-set-range "")
+   (json-schema-edit-constraint--update-range :min nil :max nil)
    (json-schema-edit-constraint-apply)
    (should
     (equal
      (json-schema-edit-phase4-test--parse)
      '((type . "integer"))))))
 
+(ert-deftest json-schema-edit-phase4-test-constraint-range-checks
+    ()
+  (json-schema-edit-phase4-test--with-constraints
+   "{\"type\": \"string\", \"minLength\": 2}" nil
+   (should
+    (equal (json-schema-edit-constraint--range)
+           '(:min "2" :max nil :xmin nil :xmax nil)))
+   (dolist (bad
+            '((:max "1")
+              (:min "-1")
+              (:min "1.5")
+              (:min "abc")
+              (:min "1" :xmin t)))
+     (should-error
+      (apply #'json-schema-edit-constraint--update-range bad)
+      :type 'user-error))
+   (should (null json-schema-edit-constraint--pending))
+   ;; An unchanged bound is not recorded.
+   (json-schema-edit-constraint--update-range :max "9")
+   (should (equal json-schema-edit-constraint--pending '((maxLength . "9")))))
+  (json-schema-edit-phase4-test--with-constraints
+   "{\"type\": \"number\", \"exclusiveMinimum\": 2e3}" nil
+   (should (equal (json-schema-edit-constraint--range-text) "(2e3..]"))
+   (should-error
+    (json-schema-edit-constraint--update-range :max "2e3")
+    :type 'user-error)
+   (call-interactively #'json-schema-edit-constraint-range-exclusive-min)
+   (should (equal (json-schema-edit-constraint--range-text) "2e3.."))
+   (json-schema-edit-phase4-test--answers
+    '("-1.5")
+    (call-interactively #'json-schema-edit-constraint-range-min))
+   (call-interactively #'json-schema-edit-constraint-range-remove-max)
+   (json-schema-edit-constraint-apply)
+   (should
+    (equal
+     (json-schema-edit-phase4-test--parse)
+     '((type . "number")
+       (minimum . -1.5))))))
+
 (ert-deftest json-schema-edit-phase4-test-constraint-draft-04
     ()
   (json-schema-edit-phase4-test--with-constraints
    "{\"$schema\": \"https://json-schema.org/draft-04/schema#\", \"type\": \"number\"}" nil
-   (json-schema-edit-constraint-set-range "(0..1)")
+   (json-schema-edit-constraint--update-range :min "0" :xmin t :max "1" :xmax t)
    (json-schema-edit-constraint-apply)
    (let-alist
        (json-schema-edit-phase4-test--parse)
@@ -592,7 +591,7 @@
   (json-schema-edit-phase4-test--with-constraints "{\"type\": \"string\"}" nil
                                                   (buffer-enable-undo)
                                                   (undo-boundary)
-                                                  (json-schema-edit-constraint-set-range "1..2")
+                                                  (json-schema-edit-constraint--update-range :min "1" :max "2")
                                                   (json-schema-edit-phase4-test--answers
                                                    '("x")
                                                    (call-interactively #'json-schema-edit-constraint-pattern))

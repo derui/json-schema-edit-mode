@@ -24,7 +24,7 @@
   (pop metaschema-generate--answers))
 
 (defun metaschema-generate--range (pointer range)
-  "Return a function setting RANGE on the schema at POINTER."
+  "Return a function setting RANGE, a plist, on the schema at POINTER."
   (lambda ()
     (let ((json-schema-edit-constraint--buffer (current-buffer))
           (json-schema-edit-constraint--pointer pointer)
@@ -53,8 +53,8 @@ DEFS is the definitions keyword of the base schema."
                                                                               (pop metaschema-generate--answers))))
     ("required" nil ,(lambda () (json-schema-edit-toggle-required '("properties" "note"))))
     ("change-type" (t) ,(lambda () (json-schema-edit-change-type '("properties" "id") "integer")))
-    ("range-string" nil ,(metaschema-generate--range '("properties" "note") "1..200"))
-    ("range-number" nil ,(metaschema-generate--range '("properties" "count") "(0..100]"))
+    ("range-string" nil ,(metaschema-generate--range '("properties" "note") '(:min "1" :max "200")))
+    ("range-number" nil ,(metaschema-generate--range '("properties" "count") '(:min "0" :xmin t :max "100")))
     ("rename-property" nil ,(lambda () (json-schema-edit-rename-property '("properties" "id") "orderId")))
     ("rename-definition" nil ,(lambda () (json-schema-edit-rename-definition (list defs "Customer") "Buyer")))))
 

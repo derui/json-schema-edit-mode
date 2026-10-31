@@ -52,7 +52,8 @@ User                     object
     other files too, whose names are shown before and after.
 - **Constraints by type**: a menu lists the keywords that apply to the
   type at point, with their current values. Changes are written at once.
-  - Ranges are typed as `1..100`, `..100` or `(0..100]`.
+  - Ranges are edited bound by bound in a sub menu showing the current
+    range, such as `(0..100]`.
   - enum is edited one value per line.
   - pattern is edited without the JSON escapes.
 - **Transformations**:
@@ -145,8 +146,7 @@ to see them:
 | `M-p` / `M-n`       | Move the property at point up / down |
 | `C-c ;`             | Menu of every operation (below) |
 
-`C-c ;` is a binding a minor mode may claim by convention (`C-c C-s`
-belongs to the major mode).  With `context-menu-mode` on, right-click
+`C-c ;` is a binding a minor mode may claim by convention.  With `context-menu-mode` on, right-click
 offers the common operations too.
 
 The `C-c ;` menu:
@@ -228,15 +228,20 @@ The menu shows only the keywords that apply to the type at point:
 | object           | minProperties / maxProperties      | `a` additionalProperties, `n` propertyNames                                            |
 | every type       | —                                 | `e` enum, `+` add an enum value, `c` const, `d` default, `t` title, `D` description, `x` examples |
 
-Ranges use the notation of the outline:
+`l` opens a sub menu for the range.  Its header shows the current
+range in the notation of the outline (`1..100`, `..100`, `(0..100]`),
+pending changes included:
 
-| Input      | string                     | number / integer                |
-|------------|----------------------------|---------------------------------|
-| `1..100`   | minLength 1, maxLength 100 | minimum 1, maximum 100          |
-| `..100`    | maxLength only             | maximum only                    |
-| `1..`      | minLength only             | minimum only                    |
-| `(0..100]` | —                         | exclusiveMinimum 0, maximum 100 |
-| empty      | remove both                | remove both                     |
+| Key       | Action                                          |
+|-----------|-------------------------------------------------|
+| `m` / `x` | Set the lower / upper bound (empty removes it)  |
+| `M` / `X` | Remove the lower / upper bound                  |
+| `(` / `)` | Toggle an exclusive lower / upper bound (numbers only) |
+| `k`       | Remove both bounds                              |
+| `RET`     | Back to the constraint menu                     |
+
+An exclusive bound is written as `exclusiveMinimum` / `exclusiveMaximum`,
+or in draft-04 as a boolean beside `minimum` / `maximum`.
 
 Changes are kept pending until `RET` writes them as one undoable edit;
 the menu header counts them.  `v` lists the pending changes before they
